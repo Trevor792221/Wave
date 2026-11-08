@@ -1,6 +1,9 @@
-name: Tag version
+name: Tag and release
 
-# Creates a git tag (v<versionName>) whenever versionName in app/build.gradle.kts changes on main.
+# When versionName in app/build.gradle.kts changes on main:
+#   1. create the tag v<versionName> (if it doesn't exist yet)
+#   2. build the signed release APK from that tag and publish it as a GitHub release
+# Run it manually (Actions tab) to retry a release for the current versionName.
 on:
   push:
     branches: [main]
@@ -10,15 +13,23 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   tag:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Create tag from versionName
+        id: tag
         run: |
           version=$(sed -n 's/^ *versionName = "\(.*\)"$/\1/p' app/build.gradle.kts | head -n 1)
           if [ -z "$version" ]; then
@@ -26,8 +37,10 @@ jobs:
             exit 1
           fi
           tag="v$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
           if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-            echo "Tag $tag already exists; nothing to do."
+            echo "Tag $tag already exists."
             exit 0
           fi
           git config user.name "github-actions[bot]"
@@ -35,3 +48,77 @@ jobs:
           git tag -a "$tag" -m "Wave $version"
           git push origin "$tag"
           echo "Created tag $tag" >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    needs: tag
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.tag.outputs.tag }}
+      VERSION: ${{ needs.tag.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Skip if the release already exists
+        id: check
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; nothing to do." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.skip != 'true'
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
+
+      - uses: actions/setup-java@v4
+        if: steps.check.outputs.skip != 'true'
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Decode signing key
+        if: steps.check.outputs.skip != 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.WAVE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "Secret WAVE_KEYSTORE_BASE64 is not set." >&2
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/wave-release.p12"
+          echo "WAVE_KEYSTORE_FILE=$RUNNER_TEMP/wave-release.p12" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        if: steps.check.outputs.skip != 'true'
+        env:
+          WAVE_KEYSTORE_PASSWORD: ${{ secrets.WAVE_KEYSTORE_PASSWORD }}
+          WAVE_KEY_ALIAS: ${{ secrets.WAVE_KEY_ALIAS }}
+          WAVE_KEY_PASSWORD: ${{ secrets.WAVE_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Verify APK signature
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          apk="app/build/outputs/apk/release/wave-$VERSION.apk"
+          test -f "$apk"
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)/apksigner"
+          "$apksigner" verify --print-certs "$apk" | tee cert.txt
+          if grep -q "CN=Android Debug" cert.txt; then
+            echo "APK is signed with a debug key, not the release key." >&2
+            exit 1
+          fi
+          echo "APK=$apk" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub release
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          gh release create "$TAG" "$APK" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Wave $VERSION" \
+            --generate-notes
+          echo "Published release $TAG with $(basename "$APK")" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/wave-release.p12"

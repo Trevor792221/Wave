@@ -7,16 +7,28 @@ android {
         applicationId = "com.wave.tv"
         minSdk = 23
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.9"
+        versionCode = 10
+        versionName = "0.9.1"
+    }
+    // Release signing comes from environment variables (set by the release workflow from repo
+    // secrets). Without them, release builds fall back to the local debug key.
+    val releaseKeystore = System.getenv("WAVE_KEYSTORE_FILE")
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("WAVE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("WAVE_KEY_ALIAS")
+                keyPassword = System.getenv("WAVE_KEY_PASSWORD")
+            }
+        }
     }
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
-            // Test build: sign release with the debug key so it installs directly.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (releaseKeystore != null) "release" else "debug")
         }
     }
     compileOptions {
@@ -26,7 +38,7 @@ android {
 }
 // No dependencies: plain Android framework only.
 
-// Name APKs after the version, e.g. wave-0.8-test.apk (debug builds get a -debug suffix).
+// Name APKs after the version, e.g. wave-0.9.1.apk (debug builds get a -debug suffix).
 android.applicationVariants.all {
     val variant = this
     outputs.all {
