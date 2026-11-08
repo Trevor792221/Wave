@@ -72,3 +72,22 @@ The APK is written to `app/build/outputs/apk/release/wave-<version>.apk`. It is 
 Set `versionName` and `versionCode` in `app/build.gradle.kts`. When a change to `versionName` lands on `main`, the **Tag and release** workflow creates the `v<versionName>` tag, builds the APK signed with the release key (from the repository secrets) and publishes it as a GitHub release.
 
 APKs signed with different keys can't install over each other: switching between a release-signed and a debug-signed Wave means uninstalling first.
+
+## License
+
+Copyright (C) 2026 Trevor792221
+
+Wave is free software: you can redistribute it and/or modify it under the terms of the GNU
+General Public License as published by the Free Software Foundation, version 3 of the License
+(see [LICENSE](LICENSE)). It is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
+PURPOSE.
+
+**Additional permission under GNU GPL version 3 section 7:** If you modify this Program, or any
+covered work, by linking or combining it with Google Play services or other Google libraries
+distributed under the Android Software Development Kit License (or a modified version of those
+libraries), containing parts covered by the terms of that license, the licensors of this Program
+grant you additional permission to convey the resulting work.
+
+Wave uses no third-party libraries; the Gradle wrapper keeps its own Apache License 2.0. Wave is
+not affiliated with or endorsed by TIDAL; TIDAL is a trademark of its respective owner.
