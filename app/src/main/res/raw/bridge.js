@@ -150,14 +150,14 @@
     if (started) shuffleStartAt = 0;
     var picked = now - userPickAt < 1500;
     if (picked) userPickAt = 0; // a pick only counts for the song it started
-    if (picked || started) setTimeout(openPlayer, 400); // you picked something: show the player
+    if (picked || started) openPlayerWhenPlaying(); // you picked something: show the player
     var heard = {}, i;
     for (i = 0; i < mem.h.length; i++) heard[mem.h[i]] = 1;
 
     if (q.shuffleModeEnabled && (movedOn || started) && !picked && heard[id]) {
       for (var step = 1; step < n; step++) {
         var j = (idx + step) % n;
-        if (!heard[String(q.elements[j].mediaItemId)]) { fairJump(j); return; } // that song is marked then
+        if (!heard[String(q.elements[j].mediaItemId)]) { fairJumpSoon(src, idx, id, j); return; } // that song is marked then
       }
       mem.h = []; // nothing unheard left (shouldn't happen: rounds end at their last song)
       heard = {};
@@ -259,6 +259,23 @@
   addEventListener('resize', function () { setTimeout(spot, 100); });
   W.spot = function () { lastSpot = lastMini = ''; spot(); }; // the app asks again (e.g. when it comes back)
 
+  // Opens the player once Tidal says the new song is actually playing: opening it while Tidal is
+  // still starting the song can leave its player stuck at 0:00 with the loading ring. Gives up
+  // after 6 s.
+  var openWait = 0;
+  function openPlayerWhenPlaying() {
+    clearInterval(openWait);
+    var tries = 0;
+    openWait = setInterval(function () {
+      var pc = null;
+      try { pc = fairStore.getState().playbackControls; } catch (e) {}
+      var playing = pc && pc.playbackState ? pc.playbackState === 'PLAYING' : (function () { var e = media(); return e && !e.paused; })();
+      if (playing || ++tries > 30) {
+        clearInterval(openWait);
+        if (playing) setTimeout(openPlayer, 300); // a moment more for its first frames
+      }
+    }, 200);
+  }
   // Opens Tidal's full-screen player with its own "Now Playing" button in the player bar.
   function openPlayer() {
     if (playerOpen()) return;
@@ -272,18 +289,36 @@
     wasOpen = open;
   }
 
-  function fairJump(index) {
+  // Jumps once Tidal has finished starting the song it moved to (not in the middle of its own
+  // update, which could leave its player showing 0:00 and "loading"), and only if that song is
+  // still the current one.
+  function fairJumpSoon(src, idx, id, index) {
     setMuted(true); // don't let the repeat be heard for a moment
-    fairJumping = true;
-    try { fairStore.dispatch({ type: 'playQueue/MOVE_TO', payload: index }); } finally { fairJumping = false; }
-    setTimeout(function () { setMuted(false); }, 1200);
+    setTimeout(function () {
+      var q = fairQueue(), el = q && q.elements[q.currentIndex];
+      var still = q && q.currentIndex === idx && el && String(el.mediaItemId) === id &&
+        (q.sourceEntityType || '?') + ':' + (q.sourceEntityId || '?') === src;
+      if (still) {
+        fairJumping = true;
+        try { fairStore.dispatch({ type: 'playQueue/MOVE_TO', payload: index }); } finally { fairJumping = false; }
+      }
+      setTimeout(function () { setMuted(false); }, still ? 1200 : 0);
+    }, 150);
   }
   function note(m) { if (window.WaveApp && WaveApp.note) WaveApp.note(m); }
   // Mute while jumping; never stays muted for more than 4 s.
-  var muteTimer = 0;
+  // Mutes only what's playing out loud, and later unmutes only that (never anything Tidal muted
+  // itself). Never stays muted for more than 4 s.
+  var muteTimer = 0, mutedByWave = [];
   function setMuted(on) {
-    var all = document.querySelectorAll('video,audio');
-    for (var i = 0; i < all.length; i++) all[i].muted = on;
+    var i;
+    if (on) {
+      var all = document.querySelectorAll('video,audio');
+      for (i = 0; i < all.length; i++) if (!all[i].muted) { all[i].muted = true; mutedByWave.push(all[i]); }
+    } else {
+      for (i = 0; i < mutedByWave.length; i++) mutedByWave[i].muted = false;
+      mutedByWave = [];
+    }
     clearTimeout(muteTimer);
     if (on) muteTimer = setTimeout(function () { setMuted(false); }, 4000);
   }
