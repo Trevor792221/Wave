@@ -2,13 +2,18 @@
 // - Hooks Media Session handlers so remote buttons can call the player's own actions.
 // - Reports play state + track info to the app (WaveApp.state).
 // - W.cmd(c) runs play/pause/toggle/next/prev and returns how it did it (useful when debugging).
+// - W.nav(dir) moves a highlight ring between clickable things (spatial navigation).
+// - Fair shuffle: with shuffle on, songs already played in this round of a playlist are skipped.
 (function () {
-  if (window.__wave) return;
-  var W = window.__wave = { h: {} };
+  // Installed only once fully set up (W.ready). A run that broke halfway gets replaced,
+  // keeping any Media Session handlers it already captured.
+  if (window.__wave && window.__wave.ready) return;
+  var W = window.__wave = { h: (window.__wave && window.__wave.h) || {} };
   var ms = navigator.mediaSession;
-  if (ms && ms.setActionHandler) {
+  if (ms && ms.setActionHandler && !ms.setActionHandler.__wave) {
     var orig = ms.setActionHandler.bind(ms);
-    ms.setActionHandler = function (a, f) { W.h[a] = f; return orig(a, f); };
+    ms.setActionHandler = function (a, f) { window.__wave.h[a] = f; return orig(a, f); };
+    ms.setActionHandler.__wave = true;
   }
 
   // The element that's actually playing; Tidal may keep others around (e.g. preloading).
@@ -22,6 +27,7 @@
   }
 
   function report() {
+    fairAttach();
     if (!window.WaveApp) return;
     var e = media(), md = ms && ms.metadata;
     WaveApp.state(!!(e && !e.paused && !e.ended), (md && md.title) || '', (md && md.artist) || '');
@@ -30,6 +36,134 @@
     document.addEventListener(t, report, true);
   });
   setInterval(report, 5000);
+
+  // ---------- Fair shuffle ----------
+  // With shuffle on, a playlist (album, mix...) doesn't repeat a song until every song in it has
+  // played. Works with Tidal's own state store (React + Redux): its play queue says which list is
+  // playing, the songs' ids, the current one and whether shuffle is on. When Tidal moves on to a
+  // song already heard this round, Wave jumps to the next unheard song in Tidal's queue with
+  // Tidal's own action. Songs you pick, Previous and repeat-one are left alone.
+  var FAIR_KEY = 'wave.fair', fairStore = null, fairLast = null, fairJumping = false;
+  var userPickAt = 0, shuffleStartAt = 0, fairTries = 0, fairMem = {}, fairCountNext = false;
+  try { fairMem = JSON.parse(localStorage.getItem(FAIR_KEY)) || {}; } catch (e) {}
+
+  function isStore(v) {
+    return v && typeof v === 'object' && typeof v.getState === 'function' &&
+      typeof v.dispatch === 'function' && typeof v.subscribe === 'function';
+  }
+  // React keeps its internal tree on the page's elements; walk up to the root, then look for the
+  // component that was handed the store.
+  function findStore() {
+    var els = document.querySelectorAll('button,a'), f = null;
+    for (var i = 0; i < els.length && i < 30 && !f; i++) {
+      var ks = Object.keys(els[i]);
+      for (var k = 0; k < ks.length; k++) {
+        if (ks[k].indexOf('__reactFiber$') === 0 || ks[k].indexOf('__reactInternalInstance$') === 0) { f = els[i][ks[k]]; break; }
+      }
+    }
+    if (!f) return null;
+    while (f.return) f = f.return;
+    var stack = [f], seen = 0;
+    while (stack.length && seen++ < 20000) {
+      var x = stack.pop(), pr = x.memoizedProps;
+      if (pr && typeof pr === 'object') {
+        if (isStore(pr.store)) return pr.store;
+        if (pr.value && isStore(pr.value.store)) return pr.value.store;
+        if (isStore(pr.value)) return pr.value;
+      }
+      if (x.sibling) stack.push(x.sibling);
+      if (x.child) stack.push(x.child);
+    }
+    return null;
+  }
+  function fairAttach() {
+    if (fairStore || fairTries > 60 || !document.body) return;
+    fairTries++;
+    var st = null;
+    try { st = findStore(); } catch (e) {}
+    if (!st) return;
+    fairStore = st;
+    var real = st.dispatch;
+    st.dispatch = function (a) {
+      try {
+        if (a && a.type === 'playQueue/MOVE_TO' && !fairJumping) userPickAt = Date.now(); // picked in the queue
+        else if (a && a.type === 'playQueue/ADD_TRACK_LIST_TO_PLAY_QUEUE') {
+          fairCountNext = true; // the list's own size = the queue right after it's added
+          if (a.payload && a.payload.forceShuffle) shuffleStartAt = Date.now(); // shuffle-play a list
+          else userPickAt = Date.now();                                          // a song tapped in a list
+        }
+      } catch (e) {}
+      return real.apply(this, arguments);
+    };
+    st.subscribe(fairChange);
+    fairChange();
+  }
+  function fairQueue() {
+    try { var q = fairStore.getState().playQueue; return q && Array.isArray(q.elements) ? q : null; } catch (e) { return null; }
+  }
+  function fairSave() {
+    var keys = Object.keys(fairMem).sort(function (a, b) { return fairMem[b].t - fairMem[a].t; });
+    for (var i = 30; i < keys.length; i++) delete fairMem[keys[i]]; // remember the 30 latest lists
+    try { localStorage.setItem(FAIR_KEY, JSON.stringify(fairMem)); } catch (e) {}
+  }
+  function fairChange() {
+    var q = fairQueue();
+    if (!q) return;
+    var idx = q.currentIndex, el = q.elements[idx];
+    if (!el || el.mediaItemId === undefined) return;
+    var src = (q.sourceEntityType || '?') + ':' + (q.sourceEntityId || '?'), id = String(el.mediaItemId);
+    if (fairLast && fairLast.src === src && fairLast.idx === idx && fairLast.id === id) return; // nothing moved
+    var prev = fairLast, now = Date.now();
+    fairLast = { src: src, idx: idx, id: id };
+
+    var mem = fairMem[src] || (fairMem[src] = { h: [], t: 0 });
+    mem.t = now;
+    if (fairCountNext) { fairCountNext = false; mem.n = q.elements.length; }
+    // Songs Tidal adds after the list (autoplay / related music) aren't part of the round.
+    var n = mem.n && mem.n <= q.elements.length ? mem.n : q.elements.length;
+    if (idx >= n) return;
+
+    var movedOn = prev && prev.src === src && (idx === prev.idx + 1 || (idx === 0 && prev.idx === n - 1));
+    var started = now - shuffleStartAt < 3000;
+    if (started) shuffleStartAt = 0;
+    var picked = now - userPickAt < 1500;
+    var heard = {}, i;
+    for (i = 0; i < mem.h.length; i++) heard[mem.h[i]] = 1;
+
+    if (q.shuffleModeEnabled && (movedOn || started) && !picked && heard[id]) {
+      for (var step = 1; step < n; step++) {
+        var j = (idx + step) % n;
+        if (!heard[String(q.elements[j].mediaItemId)]) { fairJump(j); return; } // that song is marked then
+      }
+      mem.h = []; // nothing unheard left (shouldn't happen: rounds end at their last song)
+      heard = {};
+    }
+    if (!heard[id]) { mem.h.push(id); heard[id] = 1; }
+    var count = 0;
+    for (i = 0; i < n; i++) if (heard[String(q.elements[i].mediaItemId)]) count++;
+    if (count >= n) {
+      mem.h = []; // the round is complete: the next song (or next time) starts a new one
+      if (q.shuffleModeEnabled) note('Fair shuffle: all ' + n + ' played, new round next');
+    } else if (q.shuffleModeEnabled) {
+      note('Fair shuffle: ' + count + ' of ' + n + ' played');
+    }
+    fairSave();
+  }
+  function fairJump(index) {
+    setMuted(true); // don't let the repeat be heard for a moment
+    fairJumping = true;
+    try { fairStore.dispatch({ type: 'playQueue/MOVE_TO', payload: index }); } finally { fairJumping = false; }
+    setTimeout(function () { setMuted(false); }, 1200);
+  }
+  function note(m) { if (window.WaveApp && WaveApp.note) WaveApp.note(m); }
+  // Mute while jumping; never stays muted for more than 4 s.
+  var muteTimer = 0;
+  function setMuted(on) {
+    var all = document.querySelectorAll('video,audio');
+    for (var i = 0; i < all.length; i++) all[i].muted = on;
+    clearTimeout(muteTimer);
+    if (on) muteTimer = setTimeout(function () { setMuted(false); }, 4000);
+  }
 
   function label(b) {
     return [b.getAttribute('data-test'), b.getAttribute('aria-label'), b.getAttribute('title'),
@@ -95,4 +229,187 @@
     if (e && c === 'pause') { e.pause(); return c + ': media element'; }
     return c + ': no control found';
   };
+
+  // ---------- Spatial navigation: a ring that jumps between clickable things ----------
+  var SEL = 'a[href],button,input,select,textarea,[role="button"],[role="link"],[role="tab"],' +
+            '[role="menuitem"],[role="option"],[role="checkbox"],[role="switch"],[tabindex]:not([tabindex="-1"])';
+  var cur = null, ring = null, ringOn = false, lastX = 0, lastY = 0, pending = 0;
+
+  function rectOf(el) {
+    var r = el.getBoundingClientRect();
+    return (r.width > 1 && r.height > 1) ? r : null;
+  }
+  // Cheap check: has a size, is on screen, and isn't a page-sized container.
+  function onScreen(el) {
+    var r = rectOf(el), vw = innerWidth, vh = innerHeight;
+    if (!r || r.right <= 0 || r.bottom <= 0 || r.left >= vw || r.top >= vh) return null;
+    return r.width * r.height > vw * vh * 0.6 ? null : r;
+  }
+  // Full check (slower): also enabled and not hidden behind something else (e.g. a dialog).
+  function usable(el) {
+    var r = onScreen(el), vw = innerWidth, vh = innerHeight;
+    if (!r || el.disabled || el.closest('[aria-hidden="true"],[inert]')) return null;
+    // Probe the centre and two inner corners, so items half-cut by a scrolling area still count.
+    var pts = [[(r.left + r.right) / 2, (r.top + r.bottom) / 2], [r.left + 3, r.top + 3], [r.right - 3, r.bottom - 3]];
+    for (var i = 0; i < pts.length; i++) {
+      var x = Math.min(Math.max(pts[i][0], 1), vw - 1), y = Math.min(Math.max(pts[i][1], 1), vh - 1);
+      var hit = document.elementFromPoint(x, y);
+      if (hit && (hit === el || el.contains(hit) || hit.contains(el))) return r;
+    }
+    return null;
+  }
+  // On-screen items by geometry only; the expensive hit test runs later, best-first, on a few.
+  // Measuring every item is the slow part, so the list is reused until something can move items
+  // (scroll, resize, DOM change) or for at most a second.
+  var cache = null, cacheTime = 0;
+  function invalidate() { cache = null; }
+  function candidates() {
+    var now = Date.now();
+    if (cache && now - cacheTime < 1000) return cache;
+    var all = document.querySelectorAll(SEL), out = [];
+    for (var i = 0; i < all.length; i++) {
+      var r = onScreen(all[i]);
+      if (r) out.push({ el: all[i], r: r });
+    }
+    cache = out;
+    cacheTime = now;
+    return out;
+  }
+  // Lowest score first; return the first one that passes the full check.
+  function firstUsable(scored) {
+    scored.sort(function (a, b) { return a.s - b.s; });
+    for (var i = 0; i < scored.length; i++) if (usable(scored[i].el)) return scored[i].el;
+    return null;
+  }
+  function gap(a1, a2, b1, b2) { return b1 > a2 ? b1 - a2 : a1 > b2 ? a1 - b2 : 0; }
+
+  // Best candidate from rect c in direction d: nearest along d, strongly preferring the same row/column.
+  function pick(c, d, list) {
+    var scored = [], cx = (c.left + c.right) / 2, cy = (c.top + c.bottom) / 2;
+    for (var i = 0; i < list.length; i++) {
+      var o = list[i], r = o.r;
+      if (cur && (o.el === cur || o.el.contains(cur) || cur.contains(o.el))) continue;
+      var rx = (r.left + r.right) / 2, ry = (r.top + r.bottom) / 2, main, side;
+      if (d === 'right') { if (rx <= cx + 1 || r.left <= c.left) continue; main = Math.max(0, r.left - c.right); side = gap(c.top, c.bottom, r.top, r.bottom); }
+      else if (d === 'left') { if (rx >= cx - 1 || r.right >= c.right) continue; main = Math.max(0, c.left - r.right); side = gap(c.top, c.bottom, r.top, r.bottom); }
+      else if (d === 'down') { if (ry <= cy + 1 || r.top <= c.top) continue; main = Math.max(0, r.top - c.bottom); side = gap(c.left, c.right, r.left, r.right); }
+      else { if (ry >= cy - 1 || r.bottom >= c.bottom) continue; main = Math.max(0, c.top - r.bottom); side = gap(c.left, c.right, r.left, r.right); }
+      var off = (d === 'left' || d === 'right') ? Math.abs(ry - cy) : Math.abs(rx - cx);
+      scored.push({ el: o.el, s: main + side * 3 + off * 0.1 });
+    }
+    return firstUsable(scored);
+  }
+  function canScroll(sc, d) {
+    if (d === 'down') return sc.scrollTop + sc.clientHeight < sc.scrollHeight - 1;
+    if (d === 'up') return sc.scrollTop > 0;
+    if (d === 'right') return sc.scrollLeft + sc.clientWidth < sc.scrollWidth - 1;
+    return sc.scrollLeft > 0;
+  }
+  function scroller(el, vertical) {
+    for (var n = el; n && n !== document.body; n = n.parentElement) {
+      var st = getComputedStyle(n), ov = vertical ? st.overflowY : st.overflowX;
+      if ((ov === 'auto' || ov === 'scroll') &&
+          (vertical ? n.scrollHeight > n.clientHeight : n.scrollWidth > n.clientWidth)) return n;
+    }
+    return document.scrollingElement;
+  }
+  function drawRing() {
+    if (!cur) { if (ring) ring.style.display = 'none'; return; }
+    if (!ring) {
+      ring = document.createElement('div');
+      ring.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;border-radius:8px;' +
+        'border:3px solid #33C3F0;box-shadow:0 0 0 2px rgba(0,0,0,.7),0 0 12px #33C3F0';
+      document.documentElement.appendChild(ring);
+    }
+    var r = cur.getBoundingClientRect();
+    lastX = (r.left + r.right) / 2;
+    lastY = (r.top + r.bottom) / 2;
+    ring.style.display = 'block';
+    ring.style.left = (r.left - 4) + 'px'; ring.style.top = (r.top - 4) + 'px';
+    ring.style.width = (r.width + 2) + 'px'; ring.style.height = (r.height + 2) + 'px';
+  }
+  addEventListener('scroll', function () { invalidate(); if (cur && ring) drawRing(); }, true);
+  addEventListener('resize', function () { invalidate(); if (cur && ring) drawRing(); });
+
+  // Keep the ring right when the page changes under it (Tidal swaps pages without reloading):
+  // follow the item if it moved, or jump to the nearest item if it's gone.
+  function refresh() {
+    pending = 0;
+    if (!ringOn) return;
+    // Stay on the item while it still exists (a tooltip briefly covering it is fine).
+    if (cur && document.contains(cur) && rectOf(cur)) { drawRing(); return; }
+    cur = null;
+    W.nav('', lastX, lastY);
+  }
+  function schedule() {
+    if (ringOn && !pending) pending = setTimeout(refresh, 120);
+  }
+  var observer = new MutationObserver(function (records) {
+    for (var i = 0; i < records.length; i++) {
+      if (records[i].target !== ring) { invalidate(); schedule(); return; } // ignore the ring's own redraws
+    }
+  });
+  // Injected as the page starts loading, <html> may not exist yet: wait for it.
+  (function watch() {
+    if (!document.documentElement) { setTimeout(watch, 50); return; }
+    observer.observe(document.documentElement, {
+      childList: true, subtree: true, attributes: true,
+      attributeFilter: ['class', 'style', 'hidden', 'aria-hidden', 'open']
+    });
+  })();
+  addEventListener('popstate', function () { invalidate(); schedule(); });
+
+  // "x,y,viewportWidth" of the ring target's centre, for the app to touch/hover there.
+  function point() {
+    if (!cur) return '';
+    var r = cur.getBoundingClientRect();
+    return Math.round((r.left + r.right) / 2) + ',' + Math.round((r.top + r.bottom) / 2) + ',' + innerWidth;
+  }
+  function select(el) {
+    cur = el;
+    var r = el.getBoundingClientRect();
+    if (r.top < 0 || r.bottom > innerHeight || r.left < 0 || r.right > innerWidth) {
+      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      invalidate();
+    }
+    drawRing();
+  }
+
+  // Move the ring. With no ring yet (or its element gone), start at the item nearest (x, y).
+  W.nav = function (d, x, y, retried) {
+    ringOn = true;
+    var list = candidates();
+    if (!list.length) { cur = null; drawRing(); return ''; }
+    if (!cur || !document.contains(cur) || !usable(cur)) {
+      var px = x || innerWidth / 2, py = y || innerHeight / 2, scored = [];
+      for (var i = 0; i < list.length; i++) {
+        var r = list[i].r, dx = gap(r.left, r.right, px, px), dy = gap(r.top, r.bottom, py, py);
+        scored.push({ el: list[i].el, s: dx * dx + dy * dy });
+      }
+      var start = firstUsable(scored);
+      if (!start) { cur = null; drawRing(); return ''; }
+      select(start);
+      return point();
+    }
+    var next = d ? pick(cur.getBoundingClientRect(), d, list) : null;
+    if (d && !retried) {
+      // Nothing that way, or the way leads out of an area that can still scroll that way:
+      // scroll the area first (so long lists don't jump straight to the player bar), then retry.
+      var v = d === 'up' || d === 'down', sc = scroller(cur, v);
+      if (canScroll(sc, d) && (!next || !sc.contains(next))) {
+        var amt = (v ? sc.clientHeight : sc.clientWidth) * 0.6;
+        sc.scrollBy(v ? 0 : (d === 'left' ? -amt : amt), v ? (d === 'up' ? -amt : amt) : 0);
+        invalidate(); // the scroll event comes later; positions changed now
+        return W.nav(d, 0, 0, true);
+      }
+    }
+    if (next) { select(next); return point(); }
+    drawRing();
+    return point();
+  };
+  W.target = point;
+  W.ringOff = function () { ringOn = false; cur = null; drawRing(); };
+  // Turn the ring on without moving it; it appears as soon as the page has something to ring.
+  W.ring = function () { ringOn = true; schedule(); };
+  W.ready = true;
 })();

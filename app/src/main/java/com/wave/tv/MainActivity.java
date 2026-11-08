@@ -55,6 +55,9 @@ public final class MainActivity extends Activity {
     private float cx, cy, density;
     private long touchDownTime;
     private int widthIndex;
+    /** Highlight mode: the D-pad moves a ring between clickable items. Otherwise it moves a pointer. */
+    private boolean ringMode;
+    private boolean menuLongPress, okDownSent, okUpPending;
     private String bridgeJs;
     private MediaSession session;
     private boolean playing, serviceOn, visible;
@@ -68,6 +71,7 @@ public final class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         prefs = getSharedPreferences("wave", MODE_PRIVATE);
         widthIndex = prefs.getInt("width", 1);
+        ringMode = prefs.getBoolean("ring", true);
         density = getResources().getDisplayMetrics().density;
 
         root = new FrameLayout(this);
@@ -117,6 +121,7 @@ public final class MainActivity extends Activity {
             public void onPageFinished(WebView v, String url) {
                 applyViewport();
                 v.evaluateJavascript(bridgeJs, null); // no-op if already installed
+                if (ringMode) v.evaluateJavascript("window.__wave&&__wave.ring()", null);
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
@@ -161,7 +166,8 @@ public final class MainActivity extends Activity {
             cx = root.getWidth() / 2f;
             cy = root.getHeight() / 2f;
             cursor.moveTo(cx, cy);
-            pokeCursor();
+            if (ringMode) cursor.setVisibility(View.INVISIBLE);
+            else pokeCursor();
         });
     }
 
@@ -185,11 +191,22 @@ public final class MainActivity extends Activity {
             case KeyEvent.KEYCODE_DPAD_DOWN:
             case KeyEvent.KEYCODE_DPAD_LEFT:
             case KeyEvent.KEYCODE_DPAD_RIGHT:
-                if (down) movePointer(code, e.getRepeatCount());
+                if (down) {
+                    // Highlight mode: a held direction counts once (auto-repeat is ignored).
+                    if (ringMode) {
+                        if (e.getRepeatCount() == 0) moveRing(direction(code));
+                    } else {
+                        movePointer(code, e.getRepeatCount());
+                    }
+                }
                 return true;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                if (ringMode) {
+                    ringClick(down, e.getRepeatCount());
+                    return true;
+                }
                 // Down/up map to touch down/up, so holding the button is a long-press.
                 if (down && e.getRepeatCount() == 0) {
                     touchDownTime = SystemClock.uptimeMillis();
@@ -208,7 +225,14 @@ public final class MainActivity extends Activity {
                 if (down) wheel(0, -6);
                 return true;
             case KeyEvent.KEYCODE_MENU:
-                if (!down) cycleViewport();
+                // Press: switch highlight/pointer mode. Hold: change page width.
+                if (down && e.getRepeatCount() == 1) {
+                    menuLongPress = true;
+                    cycleViewport();
+                } else if (!down) {
+                    if (!menuLongPress) toggleMode();
+                    menuLongPress = false;
+                }
                 return true;
             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
             case KeyEvent.KEYCODE_HEADSETHOOK:
@@ -276,6 +300,95 @@ public final class MainActivity extends Activity {
         mouse(MotionEvent.ACTION_HOVER_MOVE, 0, 0);
     }
 
+    // ---------- Highlight ring ----------
+
+    private static String direction(int code) {
+        if (code == KeyEvent.KEYCODE_DPAD_UP) return "up";
+        if (code == KeyEvent.KEYCODE_DPAD_DOWN) return "down";
+        if (code == KeyEvent.KEYCODE_DPAD_LEFT) return "left";
+        return "right";
+    }
+
+    /** Ask the page to move the ring; it answers with the new item's centre ("x,y,viewportWidth"). */
+    private boolean ringBusy;
+
+    private void moveRing(String dir) {
+        if (ringBusy) return; // previous move still running in the page: drop this press
+        ringBusy = true;
+        web.evaluateJavascript("window.__wave?__wave.nav('" + dir + "'," + cssX() + "," + cssY() + "):''",
+                res -> {
+                    ringBusy = false;
+                    onRingPoint(res);
+                });
+    }
+
+    private float cssScale = 0;
+
+    private float cssX() { return cssScale > 0 ? cx / cssScale : 0; }
+
+    private float cssY() { return cssScale > 0 ? cy / cssScale : 0; }
+
+    /** Parse "x,y,viewportWidth" (CSS px) and put the invisible pointer there. Returns false if empty. */
+    private boolean onRingPoint(String json) {
+        String v = json == null ? "" : json.replace("\"", "");
+        String[] p = v.split(",");
+        if (p.length != 3) return false;
+        try {
+            float x = Float.parseFloat(p[0]), y = Float.parseFloat(p[1]), vw = Float.parseFloat(p[2]);
+            if (vw > 0) cssScale = web.getWidth() / vw;
+            cx = x * cssScale;
+            cy = y * cssScale;
+        } catch (NumberFormatException ex) {
+            return false;
+        }
+        cursor.moveTo(cx, cy);
+        mouse(MotionEvent.ACTION_HOVER_MOVE, 0, 0); // reveals hover-only buttons (e.g. track row play)
+        return true;
+    }
+
+    /** OK in highlight mode: real touch down/up on the ringed item (fresh position, in case it moved). */
+    private void ringClick(boolean down, int repeat) {
+        if (down && repeat == 0) {
+            okDownSent = false;
+            okUpPending = false;
+            web.evaluateJavascript("window.__wave?__wave.target():''", res -> {
+                if (!onRingPoint(res)) { // no ring yet: show it instead of clicking
+                    okUpPending = false;
+                    moveRing("");
+                    return;
+                }
+                touchDownTime = SystemClock.uptimeMillis();
+                touch(MotionEvent.ACTION_DOWN);
+                okDownSent = true;
+                if (okUpPending) {
+                    touch(MotionEvent.ACTION_UP);
+                    okDownSent = okUpPending = false;
+                }
+            });
+        } else if (!down) {
+            if (okDownSent) {
+                touch(MotionEvent.ACTION_UP);
+                okDownSent = false;
+            } else {
+                okUpPending = true;
+            }
+        }
+    }
+
+    private void toggleMode() {
+        ringMode = !ringMode;
+        prefs.edit().putBoolean("ring", ringMode).apply();
+        if (ringMode) {
+            handler.removeCallbacks(hideCursor);
+            cursor.setVisibility(View.INVISIBLE);
+            moveRing("");
+        } else {
+            web.evaluateJavascript("window.__wave&&__wave.ringOff()", null);
+            pokeCursor();
+        }
+        Toast.makeText(this, ringMode ? "Highlight mode" : "Pointer mode", Toast.LENGTH_SHORT).show();
+    }
+
     private void cycleViewport() {
         widthIndex = (widthIndex + 1) % VIEWPORT_WIDTHS.length;
         prefs.edit().putInt("width", widthIndex).apply();
@@ -284,6 +397,7 @@ public final class MainActivity extends Activity {
     }
 
     private void pokeCursor() {
+        if (ringMode) return; // the pointer stays hidden in highlight mode
         cursor.setVisibility(View.VISIBLE);
         handler.removeCallbacks(hideCursor);
         handler.postDelayed(hideCursor, CURSOR_HIDE_MS);
@@ -425,6 +539,12 @@ public final class MainActivity extends Activity {
         public void state(boolean nowPlaying, String t, String a) {
             handler.post(() -> onPageState(nowPlaying, t == null ? "" : t, a == null ? "" : a));
         }
+
+        /** Short on-screen message from the page (fair shuffle status). */
+        @JavascriptInterface
+        public void note(String msg) {
+            if (msg != null && visible) handler.post(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
+        }
     }
 
     // ---------- Lifecycle ----------
@@ -486,6 +606,47 @@ public final class MainActivity extends Activity {
         @Override
         protected void onWindowVisibilityChanged(int v) {
             super.onWindowVisibilityChanged(keepVisible ? View.VISIBLE : v);
+        }
+
+        /**
+         * The on-screen keyboard's action key (Search / Go / Done) and Enter just close the
+         * keyboard instead of submitting. Next/Previous still move between form fields.
+         */
+        @Override
+        public android.view.inputmethod.InputConnection onCreateInputConnection(
+                android.view.inputmethod.EditorInfo info) {
+            android.view.inputmethod.InputConnection ic = super.onCreateInputConnection(info);
+            if (ic == null) return null;
+            return new android.view.inputmethod.InputConnectionWrapper(ic, true) {
+                @Override
+                public boolean performEditorAction(int action) {
+                    if (action == android.view.inputmethod.EditorInfo.IME_ACTION_NEXT
+                            || action == android.view.inputmethod.EditorInfo.IME_ACTION_PREVIOUS) {
+                        return super.performEditorAction(action);
+                    }
+                    hideKeyboard();
+                    return true;
+                }
+
+                @Override
+                public boolean sendKeyEvent(KeyEvent e) {
+                    int k = e.getKeyCode();
+                    if (k == KeyEvent.KEYCODE_ENTER || k == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+                        if (e.getAction() == KeyEvent.ACTION_UP) hideKeyboard();
+                        return true;
+                    }
+                    return super.sendKeyEvent(e);
+                }
+            };
+        }
+
+        /** May be called from the keyboard's thread, so hop to the UI thread. */
+        private void hideKeyboard() {
+            post(() -> {
+                android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager)
+                        getContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+                if (imm != null) imm.hideSoftInputFromWindow(getWindowToken(), 0);
+            });
         }
     }
 }
