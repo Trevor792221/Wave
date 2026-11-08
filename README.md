@@ -1,6 +1,6 @@
 # Wave
 
-A small Android TV app (~30 KB, no libraries) for playing Tidal through its web player.
+A small Android TV app (~40 KB, no libraries) for playing Tidal through its web player.
 
 Wave opens Tidal's web player full screen and makes it work with a TV remote. Playback, sign-in and Widevine DRM are all handled by Tidal's own site; Wave only grants the DRM permission to tidal.com pages.
 
@@ -8,7 +8,7 @@ Wave opens Tidal's web player full screen and makes it work with a TV remote. Pl
 
 Wave has two ways to get around, switched with **Menu**:
 
-- **Highlight mode** (default): a ring jumps between buttons, links and other clickable things.
+- **Highlight mode** (default): a ring jumps between buttons, links and other clickable things. It takes the colour of the song's cover.
 - **Pointer mode**: an on-screen pointer, for things like dragging the seek bar.
 
 | Button | Highlight mode | Pointer mode |
@@ -23,7 +23,18 @@ Wave has two ways to get around, switched with **Menu**:
 
 Fast-forward and rewind buttons act as Next and Previous. In a scrolling list the ring scrolls the list before moving on, and it follows the page when Tidal opens a new one.
 
-On the on-screen keyboard, the Search / Go / Done key just closes the keyboard (Tidal's search updates as you type).
+When you pick a song (a track, Play or Shuffle on a playlist, or a song in the queue), the full-screen player opens. Whenever the player opens, the ring goes to its play/pause button.
+
+On the on-screen keyboard, the Search / Go / Done key just closes the keyboard (Tidal's search updates as you type). The page's full-screen mode is turned off: Wave is already full screen.
+
+## Spectrum analyzers
+
+Two analyzers in the colour of the song's cover (its strongest colour):
+
+- **Over the album art** in the full-screen player: 30% opaque bars standing on the cover's bottom edge, with the frequencies (20 Hz – 20 kHz) just under the cover.
+- **In the player bar**, between the time and the buttons on the right: solid bars, while music plays and the full-screen player is closed.
+
+Tidal's streams are DRM-protected, so the page can't read them; Android's Visualizer measures the TV's sound output instead. Android asks for the microphone permission for this the first time; nothing is recorded.
 
 ## Fair shuffle
 
@@ -37,6 +48,14 @@ With shuffle on, a playlist (or album, mix...) doesn't repeat a song until every
 ## Background playback
 
 Music keeps playing when you leave the app or the screen turns off. Wave runs a small foreground service while playing and releases it 10 minutes after playback pauses.
+
+## Lighter page
+
+Datadog usage tracking and the cookie-consent banner are answered empty without leaving the TV. Tidal's own event reporting (which feeds your history and recommendations) and its anti-bot check are left alone.
+
+## If something goes wrong
+
+If Tidal's page process stops (for example when the TV runs low on memory), Wave reloads the page instead of closing. If Wave itself crashes, the next launch offers to share the details.
 
 ## Building
 

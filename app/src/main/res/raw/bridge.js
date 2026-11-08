@@ -4,6 +4,7 @@
 // - W.cmd(c) runs play/pause/toggle/next/prev and returns how it did it (useful when debugging).
 // - W.nav(dir) moves a highlight ring between clickable things (spatial navigation).
 // - Fair shuffle: with shuffle on, songs already played in this round of a playlist are skipped.
+// - Reports where the spectrum analyzer goes while Tidal's full-screen player is open.
 (function () {
   // Installed only once fully set up (W.ready). A run that broke halfway gets replaced,
   // keeping any Media Session handlers it already captured.
@@ -15,6 +16,20 @@
     ms.setActionHandler = function (a, f) { window.__wave.h[a] = f; return orig(a, f); };
     ms.setActionHandler.__wave = true;
   }
+
+  // Full screen is refused (Wave is already full screen; the player's full-screen button only
+  // broke navigation): requests resolve without doing anything, and the ring skips those buttons.
+  (function () {
+    var no = function () { return Promise.resolve(); };
+    var E = Element.prototype;
+    ['requestFullscreen', 'webkitRequestFullscreen', 'webkitRequestFullScreen'].forEach(function (m) {
+      if (E[m]) E[m] = no;
+    });
+    // Say full screen isn't available, so Tidal doesn't offer its button.
+    ['fullscreenEnabled', 'webkitFullscreenEnabled'].forEach(function (k) {
+      try { Object.defineProperty(Document.prototype, k, { configurable: true, get: function () { return false; } }); } catch (e) {}
+    });
+  })();
 
   // The element that's actually playing; Tidal may keep others around (e.g. preloading).
   function media() {
@@ -86,6 +101,11 @@
     var real = st.dispatch;
     st.dispatch = function (a) {
       try {
+        if (a && /^view\/(ENTER|EXIT)(ED)?_NOWPLAYING$/.test(a.type)) { // the full-screen player
+          npAction = /ENTER/.test(a.type);
+          npActionAt = Date.now();
+          setTimeout(spot, 50);
+        }
         if (a && a.type === 'playQueue/MOVE_TO' && !fairJumping) userPickAt = Date.now(); // picked in the queue
         else if (a && a.type === 'playQueue/ADD_TRACK_LIST_TO_PLAY_QUEUE') {
           fairCountNext = true; // the list's own size = the queue right after it's added
@@ -96,7 +116,9 @@
       return real.apply(this, arguments);
     };
     st.subscribe(fairChange);
+    st.subscribe(checkPlayerOpened);
     fairChange();
+    npAction = false; // Tidal starts with its player closed
   }
   function fairQueue() {
     try { var q = fairStore.getState().playQueue; return q && Array.isArray(q.elements) ? q : null; } catch (e) { return null; }
@@ -127,6 +149,8 @@
     var started = now - shuffleStartAt < 3000;
     if (started) shuffleStartAt = 0;
     var picked = now - userPickAt < 1500;
+    if (picked) userPickAt = 0; // a pick only counts for the song it started
+    if (picked || started) setTimeout(openPlayer, 400); // you picked something: show the player
     var heard = {}, i;
     for (i = 0; i < mem.h.length; i++) heard[mem.h[i]] = 1;
 
@@ -149,6 +173,105 @@
     }
     fairSave();
   }
+  // ---------- Spectrum analyzer placement ----------
+  // While Tidal's full-screen player is open, tell the app where the analyzer's bars go: over the
+  // lower part of the cover art, standing on the cover's bottom edge and as wide as the cover
+  // ("l,t,w,h,viewportWidth|coverUrl" in CSS px, or "off"). The app puts the frequency labels just
+  // under the cover and colours the bars from the cover.
+  var npAction = null, npActionAt = 0, lastSpot = '';
+  function playerOpen() {
+    var open = npAction;
+    try {
+      var v = fairStore.getState().view;
+      // Tidal's own flag, unless an open/close action just happened (the flag can lag its animation).
+      if (v && typeof v === 'object' && Date.now() - npActionAt > 2000) {
+        if (typeof v.isNowPlaying === 'boolean') open = v.isNowPlaying || v.showNowPlaying === true;
+        else for (var k in v) if (/now_?playing/i.test(k) && typeof v[k] === 'boolean') { open = v[k]; break; }
+      }
+    } catch (e) {}
+    return !!open;
+  }
+  // Fallback when Tidal's state doesn't say: the player's own tabs (Credits, Lyrics) near the top.
+  function playerTabsShown() {
+    var els = document.querySelectorAll('button,a,[role="tab"]'), seen = 0;
+    for (var i = 0; i < els.length && seen < 2; i++) {
+      var t = (els[i].textContent || '').trim();
+      if (t !== 'Credits' && t !== 'Lyrics') continue;
+      var r = rectOf(els[i]);
+      if (r && r.top >= 0 && r.top < innerHeight * 0.25) seen++;
+    }
+    return seen >= 2;
+  }
+  function spotRect() {
+    if (!(fairStore && playerOpen()) && !playerTabsShown()) return 'off';
+    var vw = innerWidth, vh = innerHeight, cover = null, best = 0, i;
+    // Tidal's player cover; if it's ever not found, the biggest roughly square picture fully on
+    // screen that isn't a full-screen backdrop.
+    var art = document.querySelector('[data-test="now-playing-artwork"]'), ar = art && rectOf(art);
+    var coverEl = null;
+    if (ar && ar.top >= 0 && ar.bottom <= vh) { cover = ar; coverEl = art; best = ar.width * ar.height; }
+    var imgs = cover ? [] : document.querySelectorAll('img,video,canvas');
+    for (i = 0; i < imgs.length; i++) {
+      var r = rectOf(imgs[i]), a = r ? r.width * r.height : 0;
+      if (!r || r.top < 0 || r.bottom > vh || r.left < 0 || r.right > vw) continue;
+      if (a > vw * vh * 0.5 || r.width / r.height < 0.8 || r.width / r.height > 1.25) continue;
+      if (a > best) { best = a; cover = r; coverEl = imgs[i]; }
+    }
+    if (!cover || best < vw * vh * 0.04) return 'off';
+    var h = Math.max(40, Math.min(160, cover.height * 0.22));
+    var top = cover.bottom - h;
+    var url = coverEl && coverEl.tagName === 'IMG' ? (coverEl.currentSrc || coverEl.src || '') : '';
+    return [Math.round(cover.left), Math.round(top), Math.round(cover.width), Math.round(h), vw].join(',') + '|' + url;
+  }
+  // The small analyzer in Tidal's player bar: between the time readout (or the play controls)
+  // and the buttons on the right, coloured from the bar's own small cover, while the full-screen
+  // player is closed. Same format.
+  function miniRect() {
+    // Not while the full-screen player is open: the analyzer over the cover takes over there.
+    if ((fairStore && playerOpen()) || playerTabsShown()) return 'off';
+    var footer = document.querySelector('[data-test="footer-player"]'), fr = footer && rectOf(footer);
+    if (!fr || fr.top >= innerHeight) return 'off';
+    var left = 0, el, er;
+    ['play-controls', 'duration', 'progress-bar'].forEach(function (t) {
+      el = footer.querySelector('[data-test="' + t + '"]'); er = el && rectOf(el);
+      if (er) left = Math.max(left, er.right);
+    });
+    var right = footer.querySelector('[data-test="play-queue-button"],[data-test="volume"]');
+    var rr = right && rectOf(right);
+    if (!left || !rr) return 'off';
+    var l = left + 16, w = rr.left - 16 - l, top = fr.top + 14, h = fr.height - 28;
+    if (w < 60 || h < 20) return 'off';
+    var img = footer.querySelector('[data-test="current-media-imagery"] img');
+    var url = img ? (img.currentSrc || img.src || '') : '';
+    return [Math.round(l), Math.round(top), Math.round(w), Math.round(h), innerWidth].join(',') + '|' + url;
+  }
+  var lastMini = '';
+  function spot() {
+    if (!fairStore) checkPlayerOpened();
+    var m = 'off';
+    try { m = miniRect(); } catch (e) {}
+    if (m !== lastMini && window.WaveApp && WaveApp.miniSpectrum) { lastMini = m; WaveApp.miniSpectrum(m); }
+    var s = 'off';
+    try { s = spotRect(); } catch (e) {}
+    if (s !== lastSpot && window.WaveApp && WaveApp.spectrum) { lastSpot = s; WaveApp.spectrum(s); }
+  }
+  setInterval(spot, 1000); // follows layout changes (resize, animations); cheap while closed
+  addEventListener('resize', function () { setTimeout(spot, 100); });
+  W.spot = function () { lastSpot = lastMini = ''; spot(); }; // the app asks again (e.g. when it comes back)
+
+  // Opens Tidal's full-screen player with its own "Now Playing" button in the player bar.
+  function openPlayer() {
+    if (playerOpen()) return;
+    var b = document.querySelector('[data-test="player-details-toggle-now-playing"]');
+    if (b) b.click();
+  }
+  var wasOpen = false;
+  function checkPlayerOpened() {
+    var open = playerOpen() || playerTabsShown();
+    if (open && !wasOpen) setTimeout(function () { W.ringToPlay(); }, 300); // after it has drawn
+    wasOpen = open;
+  }
+
   function fairJump(index) {
     setMuted(true); // don't let the repeat be heard for a moment
     fairJumping = true;
@@ -233,6 +356,7 @@
   // ---------- Spatial navigation: a ring that jumps between clickable things ----------
   var SEL = 'a[href],button,input,select,textarea,[role="button"],[role="link"],[role="tab"],' +
             '[role="menuitem"],[role="option"],[role="checkbox"],[role="switch"],[tabindex]:not([tabindex="-1"])';
+  var ringColor = '#33C3F0'; // the analyzer's colour (the cover's strongest), set by the app
   var cur = null, ring = null, ringOn = false, lastX = 0, lastY = 0, pending = 0;
 
   function rectOf(el) {
@@ -249,6 +373,7 @@
   function usable(el) {
     var r = onScreen(el), vw = innerWidth, vh = innerHeight;
     if (!r || el.disabled || el.closest('[aria-hidden="true"],[inert]')) return null;
+    if (/full.?screen/i.test(label(el))) return null; // refused anyway (see above)
     // Probe the centre and two inner corners, so items half-cut by a scrolling area still count.
     var pts = [[(r.left + r.right) / 2, (r.top + r.bottom) / 2], [r.left + 3, r.top + 3], [r.right - 3, r.bottom - 3]];
     for (var i = 0; i < pts.length; i++) {
@@ -317,8 +442,8 @@
     if (!cur) { if (ring) ring.style.display = 'none'; return; }
     if (!ring) {
       ring = document.createElement('div');
-      ring.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;border-radius:8px;' +
-        'border:3px solid #33C3F0;box-shadow:0 0 0 2px rgba(0,0,0,.7),0 0 12px #33C3F0';
+      ring.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;border-radius:8px;border:3px solid;';
+      paintRing();
       document.documentElement.appendChild(ring);
     }
     var r = cur.getBoundingClientRect();
@@ -408,6 +533,18 @@
     return point();
   };
   W.target = point;
+  function paintRing() {
+    if (!ring) return;
+    ring.style.borderColor = ringColor;
+    ring.style.boxShadow = '0 0 0 2px rgba(0,0,0,.7),0 0 12px ' + ringColor;
+  }
+  W.setRingColor = function (c) { ringColor = c; paintRing(); };
+  // When the full-screen player opens, the ring goes to its play/pause button.
+  W.ringToPlay = function () {
+    if (!ringOn) return; // pointer mode
+    var b = document.querySelector('[data-test="footer-player"] [data-test="pause"],[data-test="footer-player"] [data-test="play"]');
+    if (b && usable(b)) select(b);
+  };
   W.ringOff = function () { ringOn = false; cur = null; drawRing(); };
   // Turn the ring on without moving it; it appears as soon as the page has something to ring.
   W.ring = function () { ringOn = true; schedule(); };

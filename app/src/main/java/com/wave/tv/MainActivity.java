@@ -46,9 +46,12 @@ public final class MainActivity extends Activity {
 
     private TvWebView web;
     private CursorView cursor;
+    private boolean askedMicPermission;
+    /** Over the bottom of the cover in the full-screen player: 30% bars with frequency labels. */
+    private final Analyzer coverAnalyzer = new Analyzer(40, true, 0.30f, false);
+    /** In the player bar, between the time and the right-hand buttons: solid, while playing. */
+    private final Analyzer barAnalyzer = new Analyzer(32, false, 1f, true);
     private FrameLayout root;
-    private View fullscreenView;
-    private WebChromeClient.CustomViewCallback fullscreenCallback;
     private SharedPreferences prefs;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable hideCursor = () -> cursor.setVisibility(View.INVISIBLE);
@@ -68,6 +71,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        installCrashLog();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         prefs = getSharedPreferences("wave", MODE_PRIVATE);
         widthIndex = prefs.getInt("width", 1);
@@ -106,6 +110,16 @@ public final class MainActivity extends Activity {
 
         web.setWebViewClient(new WebViewClient() {
             @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
+                String host = r.getUrl().getHost();
+                if (host != null && isBlocked(host)) {
+                    return new android.webkit.WebResourceResponse("text/plain", "utf-8", 204, "No Content",
+                            null, new java.io.ByteArrayInputStream(new byte[0]));
+                }
+                return null;
+            }
+
+            @Override
             public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
                 String scheme = r.getUrl().getScheme();
                 // Stay in the WebView for web pages; ignore app-store / intent links.
@@ -115,6 +129,19 @@ public final class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView v, String url, Bitmap icon) {
                 v.evaluateJavascript(bridgeJs, null); // early, to catch Media Session handlers
+            }
+
+            @Override
+            public boolean onRenderProcessGone(WebView v, android.webkit.RenderProcessGoneDetail d) {
+                // The page's process died (often memory). Without this Android closes Wave too;
+                // instead note it and start over with a fresh page.
+                boolean crashed = Build.VERSION.SDK_INT >= 26 && d.didCrash();
+                writeCrashLog("Page process " + (crashed ? "crashed" : "was stopped by Android (low memory?)")
+                        + "; Wave reloaded the page.\n");
+                ((ViewGroup) v.getParent()).removeView(v);
+                v.destroy();
+                recreate();
+                return true;
             }
 
             @Override
@@ -142,22 +169,8 @@ public final class MainActivity extends Activity {
                 }
             }
 
-            @Override
-            public void onShowCustomView(View view, CustomViewCallback cb) {
-                // Fullscreen video.
-                if (fullscreenView != null) { cb.onCustomViewHidden(); return; }
-                fullscreenView = view;
-                fullscreenCallback = cb;
-                root.addView(view, root.indexOfChild(cursor), new FrameLayout.LayoutParams(-1, -1));
-            }
-
-            @Override
-            public void onHideCustomView() {
-                if (fullscreenView == null) return;
-                root.removeView(fullscreenView);
-                fullscreenView = null;
-                fullscreenCallback = null;
-            }
+            // No onShowCustomView: the page then can't go full screen (Wave already is), so
+            // Tidal's full-screen button, which broke navigation, has nothing to do.
         });
 
         if (state == null || web.restoreState(state) == null) web.loadUrl(HOME);
@@ -169,6 +182,15 @@ public final class MainActivity extends Activity {
             if (ringMode) cursor.setVisibility(View.INVISIBLE);
             else pokeCursor();
         });
+    }
+
+    /**
+     * Requests not needed on a TV, answered empty without going out: Datadog usage tracking and
+     * the cookie-consent banner. (Tidal's own event reporting and its anti-bot check stay.)
+     */
+    private static boolean isBlocked(String host) {
+        return host.equals("browser-intake-datadoghq.com") || host.endsWith(".browser-intake-datadoghq.com")
+                || host.equals("cdn.cookielaw.org");
     }
 
     /** Lay the site out at a desktop width and let the WebView scale it to the TV. */
@@ -270,9 +292,7 @@ public final class MainActivity extends Activity {
     }
 
     private void goBack() {
-        if (fullscreenView != null && fullscreenCallback != null) {
-            fullscreenCallback.onCustomViewHidden();
-        } else if (web.canGoBack()) {
+        if (web.canGoBack()) {
             web.goBack();
         } else {
             finish();
@@ -487,6 +507,7 @@ public final class MainActivity extends Activity {
                     .build());
         }
         publishSessionState();
+        barAnalyzer.update(); // runs only while playing
 
         handler.removeCallbacks(stopService);
         web.setKeepVisible(playing);
@@ -540,10 +561,217 @@ public final class MainActivity extends Activity {
             handler.post(() -> onPageState(nowPlaying, t == null ? "" : t, a == null ? "" : a));
         }
 
+        /** Where the cover analyzer goes while Tidal's full-screen player is open, or "off". */
+        @JavascriptInterface
+        public void spectrum(String spot) {
+            handler.post(() -> {
+                coverAnalyzer.spot = spot == null ? "off" : spot;
+                coverAnalyzer.update();
+            });
+        }
+
+        /** Where the player-bar analyzer goes, or "off". */
+        @JavascriptInterface
+        public void miniSpectrum(String spot) {
+            handler.post(() -> {
+                barAnalyzer.spot = spot == null ? "off" : spot;
+                barAnalyzer.update();
+            });
+        }
+
         /** Short on-screen message from the page (fair shuffle status). */
         @JavascriptInterface
         public void note(String msg) {
             if (msg != null && visible) handler.post(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
+        }
+    }
+
+    // ---------- Spectrum analyzers ----------
+
+    private void updateSpectrum() {
+        coverAnalyzer.update();
+        barAnalyzer.update();
+    }
+
+    /** The highlight ring takes the analyzers' colour (the cover's strongest). */
+    private void setRingColor(int rgb) {
+        web.evaluateJavascript(String.format(java.util.Locale.US,
+                "window.__wave&&__wave.setRingColor&&__wave.setRingColor('#%06X')", rgb & 0xFFFFFF), null);
+    }
+
+    /** True once the microphone permission (needed by Android's Visualizer) is granted; asks once per launch. */
+    private boolean micAllowed() {
+        if (Build.VERSION.SDK_INT < 23
+                || checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            return true;
+        }
+        if (!askedMicPermission) {
+            askedMicPermission = true;
+            requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, 1);
+        }
+        return false;
+    }
+
+    /** One analyzer on screen: where the page says it goes, and the cover it takes its colour from. */
+    private final class Analyzer {
+        final int bars;
+        final boolean labels, onlyWhilePlaying;
+        final float alpha;
+        /** "l,t,w,h,viewportWidth|coverUrl" in CSS px, or "off". */
+        String spot = "off";
+        String coverUrl = "";
+        SpectrumView view;
+
+        Analyzer(int bars, boolean labels, float alpha, boolean onlyWhilePlaying) {
+            this.bars = bars;
+            this.labels = labels;
+            this.alpha = alpha;
+            this.onlyWhilePlaying = onlyWhilePlaying;
+        }
+
+        void update() {
+            String[] parts = spot.split("\\|", 2);
+            String[] p = parts[0].split(",");
+            if (!visible || p.length != 5 || (onlyWhilePlaying && !playing) || !micAllowed()) {
+                if (view != null) {
+                    view.stop();
+                    view.setVisibility(View.GONE);
+                }
+                return;
+            }
+            int l, t, w, h;
+            try {
+                float scale = web.getWidth() / Float.parseFloat(p[4]);
+                l = Math.round(Float.parseFloat(p[0]) * scale);
+                t = Math.round(Float.parseFloat(p[1]) * scale);
+                w = Math.round(Float.parseFloat(p[2]) * scale);
+                h = Math.round(Float.parseFloat(p[3]) * scale);
+            } catch (NumberFormatException e) {
+                return;
+            }
+            if (view == null) {
+                view = new SpectrumView(MainActivity.this, bars, labels, alpha);
+                root.addView(view, 1); // over the page, under the pointer
+            }
+            // Bars in the given box; any label row goes just under it.
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(w, h + view.labelHeight());
+            lp.leftMargin = l;
+            lp.topMargin = t;
+            view.setLayoutParams(lp);
+            view.setVisibility(View.VISIBLE);
+            view.start();
+            colorFromCover(parts.length > 1 ? parts[1] : "");
+        }
+
+        /** Downloads a small copy of the cover and gives the bars its strongest colour. */
+        private void colorFromCover(String url) {
+            if (url.equals(coverUrl)) return;
+            coverUrl = url;
+            if (!url.startsWith("https://")) {
+                view.setColor(SpectrumView.DEFAULT_COLOR);
+                setRingColor(SpectrumView.DEFAULT_COLOR);
+                return;
+            }
+            // Tidal serves covers in several sizes; 160x160 is plenty for picking a colour.
+            String small = url.replaceAll("/\\d+x\\d+\\.(jpg|png|webp)$", "/160x160.$1");
+            new Thread(() -> {
+                int c = SpectrumView.DEFAULT_COLOR;
+                android.graphics.Bitmap bmp = download(small);
+                if (bmp == null && !small.equals(url)) bmp = download(url);
+                if (bmp != null) c = SpectrumView.strongestColor(bmp);
+                int color = c;
+                handler.post(() -> {
+                    if (url.equals(coverUrl) && view != null) {
+                        view.setColor(color);
+                        setRingColor(color);
+                    }
+                });
+            }).start();
+        }
+    }
+
+    private static android.graphics.Bitmap download(String url) {
+        java.net.HttpURLConnection con = null;
+        try {
+            con = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            con.setConnectTimeout(5000);
+            con.setReadTimeout(5000);
+            if (con.getResponseCode() != 200) return null;
+            try (java.io.InputStream in = con.getInputStream()) {
+                return android.graphics.BitmapFactory.decodeStream(in);
+            }
+        } catch (java.io.IOException | RuntimeException e) {
+            return null;
+        } finally {
+            if (con != null) con.disconnect();
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+        super.onRequestPermissionsResult(code, perms, results);
+        updateSpectrum();
+    }
+
+    // ---------- Crash log ----------
+    // A crash's details are kept in a file; next launch offers to share them (then deletes them).
+
+    private static boolean crashLogInstalled;
+
+    private void installCrashLog() {
+        if (!crashLogInstalled) {
+            crashLogInstalled = true;
+            Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+            android.content.Context app = getApplicationContext();
+            Thread.setDefaultUncaughtExceptionHandler((thread, e) -> {
+                java.io.StringWriter sw = new java.io.StringWriter();
+                e.printStackTrace(new java.io.PrintWriter(sw));
+                writeCrashLog(app, "Crash on thread " + thread.getName() + ":\n" + sw);
+                if (previous != null) previous.uncaughtException(thread, e);
+            });
+        }
+        java.io.File f = new java.io.File(getFilesDir(), "crash.txt");
+        if (!f.exists()) return;
+        String text;
+        try (java.io.InputStream in = new java.io.FileInputStream(f)) {
+            byte[] b = new byte[(int) Math.min(f.length(), 64000)];
+            int n = in.read(b);
+            text = new String(b, 0, Math.max(0, n), "UTF-8");
+        } catch (java.io.IOException e) {
+            text = "(couldn't read the crash log)";
+        }
+        f.delete();
+        String report = text;
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Wave stopped last time")
+                .setMessage("Share the details so it can be fixed?")
+                .setPositiveButton("Share", (d, w) -> startActivity(Intent.createChooser(
+                        new Intent(Intent.ACTION_SEND).setType("text/plain")
+                                .putExtra(Intent.EXTRA_SUBJECT, "Wave crash log")
+                                .putExtra(Intent.EXTRA_TEXT, report), "Share crash log")))
+                .setNegativeButton("Not now", null)
+                .show();
+    }
+
+    private void writeCrashLog(String text) {
+        writeCrashLog(getApplicationContext(), text);
+    }
+
+    private static void writeCrashLog(android.content.Context ctx, String text) {
+        String head = "Wave " + versionName(ctx) + ", Android " + Build.VERSION.RELEASE + ", " + Build.MANUFACTURER + " " + Build.MODEL
+                + ", " + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(new java.util.Date()) + "\n";
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(new java.io.File(ctx.getFilesDir(), "crash.txt"), true)) {
+            out.write((head + text + "\n").getBytes("UTF-8"));
+        } catch (java.io.IOException ignored) {
+            // Nothing more to do.
+        }
+    }
+
+    private static String versionName(android.content.Context ctx) {
+        try {
+            return ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), 0).versionName;
+        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+            return "?";
         }
     }
 
@@ -559,6 +787,7 @@ public final class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         visible = true;
+        updateSpectrum();
         web.onResume();
         web.resumeTimers();
     }
@@ -567,6 +796,7 @@ public final class MainActivity extends Activity {
     protected void onStop() {
         super.onStop();
         visible = false;
+        updateSpectrum(); // stops it: nothing to draw while Wave isn't on screen
         CookieManager.getInstance().flush(); // keep the Tidal login
         // Keep the page running while music plays; otherwise let it sleep.
         if (!playing) {
@@ -580,8 +810,14 @@ public final class MainActivity extends Activity {
         handler.removeCallbacksAndMessages(null);
         stopPlaybackService();
         session.release();
-        ((ViewGroup) web.getParent()).removeView(web);
-        web.destroy();
+        // The analyzers share one capture across activities: let it go with this one.
+        if (coverAnalyzer.view != null) coverAnalyzer.view.stop();
+        if (barAnalyzer.view != null) barAnalyzer.view.stop();
+        // Already removed and destroyed if the page's process died (see onRenderProcessGone).
+        if (web.getParent() != null) {
+            ((ViewGroup) web.getParent()).removeView(web);
+            web.destroy();
+        }
         super.onDestroy();
     }
 
