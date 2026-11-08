@@ -113,6 +113,11 @@
           else userPickAt = Date.now();                                          // a song tapped in a list
         }
       } catch (e) {}
+      // Picking a song while another plays: pause it first (see switchSongs).
+      if (a && !fairJumping && (a.type === 'playQueue/MOVE_TO' || a.type === 'playQueue/ADD_TRACK_LIST_TO_PLAY_QUEUE')) {
+        var self = this, args = arguments;
+        if (switchSongs(function () { real.apply(self, args); })) return a;
+      }
       return real.apply(this, arguments);
     };
     st.subscribe(fairChange);
@@ -120,6 +125,18 @@
     fairChange();
     npAction = false; // Tidal starts with its player closed
   }
+  // TVs decode Tidal's protected audio on hardware that can't start a new stream while the old
+  // one is still playing: switching songs mid-play left Tidal's player stuck at 0:00 with the
+  // loading ring. So the playing song is paused first and the switch happens 0.4 s later.
+  // Returns false (nothing to wait for) when nothing is playing.
+  function switchSongs(go) {
+    var els = document.querySelectorAll('video,audio'), paused = false;
+    for (var i = 0; i < els.length; i++) if (!els[i].paused) { els[i].pause(); paused = true; }
+    if (!paused) return false;
+    setTimeout(go, 400);
+    return true;
+  }
+
   function fairQueue() {
     try { var q = fairStore.getState().playQueue; return q && Array.isArray(q.elements) ? q : null; } catch (e) { return null; }
   }
