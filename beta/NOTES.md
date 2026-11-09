@@ -55,6 +55,7 @@
 | `53-wave-mobile-beta-1.0.8.apk` | Nov 9 | First Wave Beta: Android Auto heart, played-this-round list (as released) |
 | `54-wave-mobile-beta-1.0.9.apk` | Nov 9 | Separate audio quality on Wi-Fi and on mobile data (General tab) |
 | `55-wave-mobile-beta-1.0.9-colours.apk` | Nov 9 | 1.0.9 with Tidal's colour and glow on each picked quality |
+| `56-wave-mobile-beta-1.0.9-no-click.apk` | Nov 9 | 1.0.9: no click when playback stops (the analyzer's capture is released a few seconds later) |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
