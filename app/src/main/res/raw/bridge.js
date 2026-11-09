@@ -45,9 +45,47 @@
   function report() {
     fairAttach();
     if (!window.WaveApp) return;
-    var e = media(), md = ms && ms.metadata, art = '';
+    var e = media(), n = { title: '', artist: '', art: '', dur: 0, pos: 0 };
+    try { n = nowPlaying(); } catch (x) {} // play/pause is reported even if the song details can't be read
+    WaveApp.state(!!(e && !e.paused && !e.ended), n.title, n.artist, n.art, n.dur, n.pos);
+  }
+  function txt(el) { return el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''; }
+  // What's playing, for Android's media controls and notification. Android's WebView has no
+  // Media Session API, so it comes from Tidal itself: the song from its player bar, the length and
+  // position from its player state (else the audio). Times in milliseconds.
+  function nowPlaying() {
+    var md = ms && ms.metadata, title = (md && md.title) || '', artist = (md && md.artist) || '', art = '';
     if (md && md.artwork && md.artwork.length) art = md.artwork[md.artwork.length - 1].src || ''; // biggest last
-    WaveApp.state(!!(e && !e.paused && !e.ended), (md && md.title) || '', (md && md.artist) || '', art);
+    var footer = document.querySelector('[data-test="footer-player"]') || compactBar();
+    if (footer) {
+      if (!title) title = txt(footer.querySelector('[data-test="footer-track-title"]'));
+      if (!artist) artist = txt(footer.querySelector('[data-test="footer-artist-name"]'));
+      if (!title || !artist) { // no markers: the first two lines of text in the bar
+        var texts = [], w = document.createTreeWalker(footer, NodeFilter.SHOW_TEXT), t;
+        while ((t = w.nextNode()) && texts.length < 2) {
+          var v = t.nodeValue.trim();
+          if (v && v.length > 1 && !t.parentElement.closest('button,[role="button"],time') && texts.indexOf(v) < 0) texts.push(v);
+        }
+        title = title || texts[0] || '';
+        artist = artist || texts[1] || '';
+      }
+      if (!art) {
+        var im = footer.querySelector('[data-test="current-media-imagery"] img') || footer.querySelector('img');
+        if (im) art = (im.currentSrc || im.src || '').replace(/\/\d+x\d+(\.\w+)$/, '/640x640$1'); // a bigger copy
+      }
+    }
+    var pc = null, e = media(), dur = 0, pos = 0;
+    try { pc = fairStore && fairStore.getState().playbackControls; } catch (x) {}
+    if (pc && pc.playbackContext && pc.playbackContext.actualDuration) dur = pc.playbackContext.actualDuration;
+    else if (e && isFinite(e.duration)) dur = e.duration;
+    if (pc && typeof pc.latestCurrentTime === 'number') {
+      pos = pc.latestCurrentTime;
+      if (pc.playbackState === 'PLAYING' && pc.latestCurrentTimeSyncTimestamp) pos += (Date.now() - pc.latestCurrentTimeSyncTimestamp) / 1000;
+    } else if (e) {
+      pos = e.currentTime || 0;
+    }
+    if (dur) pos = Math.min(pos, dur);
+    return { title: title, artist: artist, art: art, dur: Math.round(dur * 1000), pos: Math.round(pos * 1000) };
   }
   ['play', 'playing', 'pause', 'ended', 'emptied'].forEach(function (t) {
     document.addEventListener(t, report, true);
@@ -419,8 +457,21 @@
     prev: /\bprev(ious)?\b|skip.?(back|prev)|previoustrack/i
   };
 
+  // Buttons in Tidal's player bar only (desktop-style or the phone's compact one). Never the rest
+  // of the page: song rows have their own "Play" buttons and carousels their own "Next" arrows.
+  function playerBarButtons() {
+    var bar = document.querySelector('[data-test="footer-player"]') || compactBar(), out = [];
+    if (!bar) return out;
+    var all = bar.querySelectorAll('button,[role="button"]');
+    for (var i = 0; i < all.length; i++) {
+      var r = visible(all[i]);
+      if (r) out.push({ el: all[i], r: r });
+    }
+    return out;
+  }
+
   function findButton(c) {
-    var bar = barButtons(), i;
+    var bar = playerBarButtons(), i;
     // 1) By label (data-test / aria-label / title).
     for (i = 0; i < bar.length; i++) if (RE[c].test(label(bar[i].el))) return bar[i].el;
     if (c !== 'next' && c !== 'prev') return null;
@@ -441,8 +492,24 @@
     return best;
   }
 
+  // Tidal's own player actions, the same ones its buttons send (seen with Wave Probe).
+  var PLAYER_ACTIONS = {
+    play: 'playbackControls/PLAY', pause: 'playbackControls/PAUSE',
+    next: 'playbackControls/SKIP_NEXT', prev: 'playbackControls/SKIP_PREVIOUS'
+  };
+
   W.cmd = function (c) {
     var e = media();
+    if (fairStore) { // straight to Tidal's player
+      if (c === 'toggle') {
+        var pc = null;
+        try { pc = fairStore.getState().playbackControls; } catch (x) {}
+        var on = pc && pc.playbackState ? pc.playbackState === 'PLAYING' : (e && !e.paused);
+        c = on ? 'pause' : 'play';
+      }
+      try { fairStore.dispatch({ type: PLAYER_ACTIONS[c], payload: undefined }); return c + ': Tidal player'; } catch (x) {}
+    }
+    // Tidal's player not reachable: its buttons in the player bar, else the audio itself.
     if (c === 'toggle') c = (e && !e.paused) ? 'pause' : 'play';
     var action = { play: 'play', pause: 'pause', next: 'nexttrack', prev: 'previoustrack' }[c];
     if (W.h[action]) {

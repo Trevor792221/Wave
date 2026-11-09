@@ -18,6 +18,10 @@ final class WaveSession {
     private static MediaSession session;
     private static WeakReference<MainActivity> player = new WeakReference<>(null);
     private static boolean playing;
+    private static String title = "", artist = "";
+    private static android.graphics.Bitmap art;
+    /** Where the song was (ms) at a moment (elapsedRealtime); Android moves the progress bar on from there. */
+    private static long position = PlaybackState.PLAYBACK_POSITION_UNKNOWN, positionAt;
     private static final Handler handler = new Handler(Looper.getMainLooper());
 
     private WaveSession() {
@@ -61,13 +65,34 @@ final class WaveSession {
         publish(null);
     }
 
+    /** The song's position from the page; re-published only when it's off by more than 2 s (a seek, a new song). */
+    static void setPosition(long ms, boolean nowPlaying) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        long expected = position == PlaybackState.PLAYBACK_POSITION_UNKNOWN ? -10000
+                : position + (playing ? now - positionAt : 0);
+        position = ms;
+        positionAt = now;
+        if (Math.abs(expected - ms) > 2000 && nowPlaying == playing) publish(null);
+    }
+
     static boolean isPlaying() {
         return playing;
     }
 
     static void setMetadata(MediaMetadata m) {
+        title = m.getString(MediaMetadata.METADATA_KEY_TITLE);
+        artist = m.getString(MediaMetadata.METADATA_KEY_ARTIST);
+        art = m.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
         if (session != null) session.setMetadata(m);
     }
+
+    static String title() { return title == null ? "" : title; }
+
+    static String artist() { return artist == null ? "" : artist; }
+
+    static android.graphics.Bitmap art() { return art; }
+
+    static MediaSession.Token token() { return session == null ? null : session.getSessionToken(); }
 
     static void command(String c) {
         MainActivity a = player.get();
@@ -96,8 +121,9 @@ final class WaveSession {
         if (error != null) {
             b.setState(PlaybackState.STATE_ERROR, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 0f).setErrorMessage(error);
         } else {
-            b.setState(playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED,
-                    PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1f);
+            long pos = position == PlaybackState.PLAYBACK_POSITION_UNKNOWN ? position
+                    : position + (playing ? android.os.SystemClock.elapsedRealtime() - positionAt : 0);
+            b.setState(playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED, pos, 1f);
         }
         session.setPlaybackState(b.build());
     }

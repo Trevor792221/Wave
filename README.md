@@ -44,6 +44,8 @@ Wave Mobile is the same app for touch phones: everything below except the remote
 
 Swipes that start on the player bar (its buttons and seek bar) are left to Tidal.
 
+While music plays, a notification shows the song, artist, cover and progress, with previous, play/pause and next. These buttons, the lock screen, headphone buttons and Android Auto all send Tidal's own player commands, the same ones its player buttons send.
+
 ### Android Auto
 
 Wave Mobile shows up in Android Auto as a media app with play/pause, next and previous, and the song's title, artist and cover. When the phone connects to Android Auto, playback carries on by itself.

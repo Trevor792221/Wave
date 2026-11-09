@@ -19,16 +19,25 @@ import android.os.PowerManager;
 public final class PlaybackService extends Service {
     private static final String CHANNEL = "playback";
     private static final int ID = 1;
-    static final String EXTRA_TITLE = "title";
-    static final String EXTRA_TEXT = "text";
 
     private PowerManager.WakeLock wakeLock;
     private android.net.wifi.WifiManager.WifiLock wifiLock;
 
+    /** The notification's buttons. */
+    private static final String ACTION_PREV = "com.wave.PREV", ACTION_TOGGLE = "com.wave.TOGGLE", ACTION_NEXT = "com.wave.NEXT";
+    private boolean foreground;
+
     @Override
     public int onStartCommand(Intent i, int flags, int startId) {
-        Notification n = build(this, i == null ? null : i.getStringExtra(EXTRA_TITLE),
-                i == null ? null : i.getStringExtra(EXTRA_TEXT));
+        String action = i == null ? null : i.getAction();
+        if (action != null) { // a button in the notification
+            WaveSession.command(ACTION_PREV.equals(action) ? "prev" : ACTION_NEXT.equals(action) ? "next"
+                    : WaveSession.isPlaying() ? "pause" : "play");
+            if (!foreground) stopSelf(startId);
+            return START_NOT_STICKY;
+        }
+        Notification n = build(this);
+        foreground = true;
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
         } else {
@@ -65,13 +74,17 @@ public final class PlaybackService extends Service {
         return null;
     }
 
-    /** Refresh the notification text without restarting the service. */
-    static void update(Context ctx, String title, String text) {
-        ((NotificationManager) ctx.getSystemService(NOTIFICATION_SERVICE)).notify(ID, build(ctx, title, text));
+    /** Redraw the notification (song, cover, play/pause) without restarting the service. */
+    static void refresh(Context ctx) {
+        ((NotificationManager) ctx.getSystemService(NOTIFICATION_SERVICE)).notify(ID, build(ctx));
     }
 
+    /**
+     * A media notification: the song, artist and cover, with previous, play/pause and next. Tied to
+     * Wave's media session, so the lock screen and the quick-settings media panel show it too.
+     */
     @SuppressWarnings("deprecation")
-    private static Notification build(Context ctx, String title, String text) {
+    private static Notification build(Context ctx) {
         Notification.Builder b;
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationManager nm = (NotificationManager) ctx.getSystemService(NOTIFICATION_SERVICE);
@@ -83,12 +96,27 @@ public final class PlaybackService extends Service {
         PendingIntent open = PendingIntent.getActivity(ctx, 0,
                 new Intent(ctx, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        return b.setSmallIcon(R.drawable.ic_fg)
-                .setContentTitle(title == null || title.isEmpty() ? "Wave" : title)
-                .setContentText(text == null ? "" : text)
+        boolean playing = WaveSession.isPlaying();
+        String title = WaveSession.title(), artist = WaveSession.artist();
+        b.setSmallIcon(R.drawable.ic_fg)
+                .setContentTitle(title.isEmpty() ? "Wave" : title)
+                .setContentText(artist)
+                .setLargeIcon(WaveSession.art())
                 .setContentIntent(open)
-                .setOngoing(true)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setOngoing(playing)
                 .setShowWhen(false)
-                .build();
+                .addAction(new Notification.Action.Builder(android.R.drawable.ic_media_previous, "Previous", button(ctx, ACTION_PREV, 1)).build())
+                .addAction(new Notification.Action.Builder(playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play,
+                        playing ? "Pause" : "Play", button(ctx, ACTION_TOGGLE, 2)).build())
+                .addAction(new Notification.Action.Builder(android.R.drawable.ic_media_next, "Next", button(ctx, ACTION_NEXT, 3)).build());
+        Notification.MediaStyle style = new Notification.MediaStyle().setShowActionsInCompactView(0, 1, 2);
+        if (WaveSession.token() != null) style.setMediaSession(WaveSession.token());
+        return b.setStyle(style).build();
+    }
+
+    private static PendingIntent button(Context ctx, String action, int code) {
+        return PendingIntent.getService(ctx, code, new Intent(ctx, PlaybackService.class).setAction(action),
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
     }
 }

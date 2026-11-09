@@ -534,13 +534,17 @@ public final class MainActivity extends Activity {
     /** Called (via the bridge) whenever the page's play state or track changes. */
     private String artUrl = "";
 
-    private void onPageState(boolean nowPlaying, String t, String a, String art) {
-        if (nowPlaying == playing && t.equals(title) && a.equals(artist) && art.equals(artUrl)) return;
-        boolean trackChanged = !t.equals(title) || !a.equals(artist) || !art.equals(artUrl);
+    private long durationMs;
+
+    private void onPageState(boolean nowPlaying, String t, String a, String art, long durMs, long posMs) {
+        WaveSession.setPosition(posMs, nowPlaying); // re-published only when it drifts or jumps
+        if (nowPlaying == playing && t.equals(title) && a.equals(artist) && art.equals(artUrl) && durMs == durationMs) return;
+        boolean trackChanged = !t.equals(title) || !a.equals(artist) || !art.equals(artUrl) || durMs != durationMs;
         playing = nowPlaying;
         title = t;
         artist = a;
         artUrl = art;
+        durationMs = durMs;
         if (trackChanged) publishMetadata(t, a, art);
         publishSessionState();
         barAnalyzer.update(); // runs only while playing
@@ -549,10 +553,11 @@ public final class MainActivity extends Activity {
         web.setKeepVisible(playing);
         if (playing) {
             WaveSession.get(this).setActive(true);
+            askPhonePermissions();
             if (!serviceOn) startPlaybackService();
-            else PlaybackService.update(this, t, a);
+            else PlaybackService.refresh(this);
         } else if (serviceOn) {
-            PlaybackService.update(this, t, "Paused");
+            PlaybackService.refresh(this);
             handler.postDelayed(stopService, IDLE_STOP_MS);
         }
     }
@@ -563,9 +568,11 @@ public final class MainActivity extends Activity {
 
     /** Title and artist at once; the cover (for Android Auto and the lock screen) once downloaded. */
     private void publishMetadata(String t, String a, String art) {
+        long dur = durationMs;
         MediaMetadata.Builder m = new MediaMetadata.Builder()
                 .putString(MediaMetadata.METADATA_KEY_TITLE, t)
-                .putString(MediaMetadata.METADATA_KEY_ARTIST, a);
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, a)
+                .putLong(MediaMetadata.METADATA_KEY_DURATION, dur); // the progress bar and times
         WaveSession.setMetadata(m.build());
         if (!art.startsWith("https://")) return;
         new Thread(() -> {
@@ -577,16 +584,16 @@ public final class MainActivity extends Activity {
                 WaveSession.setMetadata(new MediaMetadata.Builder()
                         .putString(MediaMetadata.METADATA_KEY_TITLE, t)
                         .putString(MediaMetadata.METADATA_KEY_ARTIST, a)
+                        .putLong(MediaMetadata.METADATA_KEY_DURATION, dur)
                         .putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, small)
                         .build());
+                if (serviceOn) PlaybackService.refresh(this); // the cover arrived
             });
         }).start();
     }
 
     private void startPlaybackService() {
-        Intent i = new Intent(this, PlaybackService.class)
-                .putExtra(PlaybackService.EXTRA_TITLE, title)
-                .putExtra(PlaybackService.EXTRA_TEXT, artist);
+        Intent i = new Intent(this, PlaybackService.class); // it reads the song from WaveSession
         try {
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
             serviceOn = true;
@@ -609,8 +616,9 @@ public final class MainActivity extends Activity {
     /** JS -> Java. Called on a WebView thread, so hop to the main thread. */
     private final class Bridge {
         @JavascriptInterface
-        public void state(boolean nowPlaying, String t, String a, String art) {
-            handler.post(() -> onPageState(nowPlaying, t == null ? "" : t, a == null ? "" : a, art == null ? "" : art));
+        public void state(boolean nowPlaying, String t, String a, String art, double durMs, double posMs) {
+            handler.post(() -> onPageState(nowPlaying, t == null ? "" : t, a == null ? "" : a, art == null ? "" : art,
+                    Math.max(0, (long) durMs), Math.max(0, (long) posMs)));
         }
 
         /** Where the cover analyzer goes while Tidal's full-screen player is open, or "off". */
@@ -649,6 +657,25 @@ public final class MainActivity extends Activity {
     private void setRingColor(int rgb) {
         web.evaluateJavascript(String.format(java.util.Locale.US,
                 "window.__wave&&__wave.setRingColor&&__wave.setRingColor('#%06X')", rgb & 0xFFFFFF), null);
+    }
+
+    /**
+     * Wave Mobile, when music first plays: notifications (Android 13+ asks for them; the media
+     * controls live there) and the microphone (the analyzers) in one request, since Android shows
+     * one permission prompt at a time.
+     */
+    private void askPhonePermissions() {
+        if (BuildConfig.TV || Build.VERSION.SDK_INT < 23 || askedMicPermission) return;
+        java.util.List<String> want = new java.util.ArrayList<>();
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            want.add("android.permission.POST_NOTIFICATIONS");
+        }
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            want.add(android.Manifest.permission.RECORD_AUDIO);
+        }
+        if (want.isEmpty()) return;
+        askedMicPermission = true; // this covers the microphone request too
+        requestPermissions(want.toArray(new String[0]), 2);
     }
 
     /** True once the microphone permission (needed by Android's Visualizer) is granted; asks once per launch. */

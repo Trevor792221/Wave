@@ -2,6 +2,8 @@
 <!-- Wave Mobile: a media app for Android Auto (named "Wave", like the TV app). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+    <!-- The media notification (Android 13+ asks before showing notifications). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- To read Android Auto's connection state (for playing on by itself when the car connects). -->
     <queries>
         <package android:name="com.google.android.projection.gearhead" />
