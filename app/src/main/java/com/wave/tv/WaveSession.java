@@ -17,7 +17,9 @@ import java.lang.ref.WeakReference;
 final class WaveSession {
     private static MediaSession session;
     private static WeakReference<MainActivity> player = new WeakReference<>(null);
-    private static boolean playing;
+    private static boolean playing, favorite;
+    /** Android Auto's heart button (Wave Mobile): Tidal's Add to / Remove from My Collection. */
+    static final String ACTION_FAVORITE = "com.wave.FAVORITE";
     private static String title = "", artist = "", quality = "";
     private static android.graphics.Bitmap art;
     /** Where the song was (ms) at a moment (elapsedRealtime); Android moves the progress bar on from there. */
@@ -39,6 +41,9 @@ final class WaveSession {
                 @Override public void onSkipToNext() { command("next"); }
                 @Override public void onSkipToPrevious() { command("prev"); }
                 @Override public void onPlayFromMediaId(String id, android.os.Bundle extras) { command("play"); }
+                @Override public void onCustomAction(String action, android.os.Bundle extras) {
+                    if (ACTION_FAVORITE.equals(action)) command("favorite");
+                }
             });
             publish(null);
         }
@@ -73,6 +78,13 @@ final class WaveSession {
         position = ms;
         positionAt = now;
         if (Math.abs(expected - ms) > 2000 && nowPlaying == playing) publish(null);
+    }
+
+    /** Whether the song is in My Collection; re-published when it changes. */
+    static void setFavorite(boolean f) {
+        if (f == favorite) return;
+        favorite = f;
+        publish(null);
     }
 
     static boolean isPlaying() {
@@ -123,6 +135,11 @@ final class WaveSession {
                         | PlaybackState.ACTION_PLAY_PAUSE | PlaybackState.ACTION_STOP
                         | PlaybackState.ACTION_SKIP_TO_NEXT | PlaybackState.ACTION_SKIP_TO_PREVIOUS
                         | PlaybackState.ACTION_PLAY_FROM_MEDIA_ID);
+        if (!BuildConfig.TV && !title().isEmpty()) {
+            b.addCustomAction(new PlaybackState.CustomAction.Builder(ACTION_FAVORITE,
+                    favorite ? "Remove from My Collection" : "Add to My Collection",
+                    favorite ? R.drawable.ic_heart_filled : R.drawable.ic_heart).build());
+        }
         if (error != null) {
             b.setState(PlaybackState.STATE_ERROR, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 0f).setErrorMessage(error);
         } else {

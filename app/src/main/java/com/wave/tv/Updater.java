@@ -43,7 +43,7 @@ final class Updater {
     }
 
     static String appName() {
-        return BuildConfig.TV ? "Wave" : "Wave Mobile";
+        return (BuildConfig.TV ? "Wave" : "Wave Mobile") + (BuildConfig.BETA ? " Beta" : "");
     }
 
     String newest() {
@@ -59,7 +59,11 @@ final class Updater {
             String state, text;
             try {
                 find();
-                if (newest != null && compare(newest, BuildConfig.VERSION_NAME) > 0) {
+                if (BuildConfig.BETA) { // a test build: releases install as the official app, not over it
+                    state = "latest";
+                    text = (newest == null ? "Test build." : "Test build. Newest release: " + newest + ".")
+                            + " Test builds don't update themselves.";
+                } else if (newest != null && compare(newest, BuildConfig.VERSION_NAME) > 0) {
                     state = "available";
                     text = appName() + " " + newest + " is available";
                 } else {

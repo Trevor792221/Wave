@@ -1,5 +1,11 @@
 plugins { id("com.android.application") }
 
+// Release signing comes from environment variables (set by the release workflow from repo
+// secrets). Without them it's a test build: "Wave Beta", its own app id (….beta), signed with
+// the local debug key, so it installs alongside an official release.
+val releaseKeystore: String? = System.getenv("WAVE_KEYSTORE_FILE")
+val beta = releaseKeystore == null
+
 android {
     namespace = "com.wave.tv"
     compileSdk = 35
@@ -7,6 +13,9 @@ android {
         applicationId = "com.wave.tv"
         minSdk = 23
         targetSdk = 35
+        if (beta) applicationIdSuffix = ".beta"
+        manifestPlaceholders["appLabel"] = if (beta) "Wave Beta" else "Wave"
+        buildConfigField("boolean", "BETA", beta.toString())
     }
     // Two apps from one codebase: Wave (TV, com.wave.tv) and Wave Mobile (phones and Android
     // Auto, com.wave.mobile). BuildConfig.TV tells the shared code which one it is. Each has its
@@ -23,15 +32,12 @@ android {
         create("mobile") {
             dimension = "device"
             applicationId = "com.wave.mobile"
-            versionCode = 107
-            versionName = "1.0.7"
+            versionCode = 108
+            versionName = "1.0.8"
             buildConfigField("boolean", "TV", "false")
         }
     }
     buildFeatures { buildConfig = true }
-    // Release signing comes from environment variables (set by the release workflow from repo
-    // secrets). Without them, release builds fall back to the local debug key.
-    val releaseKeystore = System.getenv("WAVE_KEYSTORE_FILE")
     signingConfigs {
         if (releaseKeystore != null) {
             create("release") {
@@ -57,12 +63,12 @@ android {
 }
 // No dependencies: plain Android framework only.
 
-// Name APKs after the app and version: wave-2.0.3.apk (TV), wave-mobile-2.0.3.apk (phone).
-// Debug builds get a -debug suffix.
+// Name APKs after the app and version: wave-2.0.3.apk (TV), wave-mobile-2.0.3.apk (phone);
+// test builds wave-beta-2.0.3.apk and wave-mobile-beta-2.0.3.apk. Debug builds get a -debug suffix.
 android.applicationVariants.all {
     val variant = this
     outputs.all {
-        val app = if (variant.flavorName == "mobile") "wave-mobile" else "wave"
+        val app = (if (variant.flavorName == "mobile") "wave-mobile" else "wave") + (if (beta) "-beta" else "")
         val suffix = if (variant.buildType.name == "release") "" else "-${variant.buildType.name}"
         (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
             "$app-${variant.versionName}$suffix.apk"

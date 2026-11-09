@@ -52,7 +52,7 @@ While music plays, a notification shows the song, artist, cover and progress, wi
 
 ### Android Auto
 
-Wave Mobile shows up in Android Auto as a media app with play/pause, next and previous, and the song's title, artist and cover. When the phone connects to Android Auto, playback carries on by itself.
+Wave Mobile shows up in Android Auto as a media app with play/pause, next and previous, a heart to add the song to (or remove it from) My Collection, and the song's title, artist and cover. When the phone connects to Android Auto, playback carries on by itself.
 
 - Playback is Tidal's web page inside Wave, so open Wave Mobile on the phone before driving (it can stay in the background). If it isn't open, Android Auto asks you to open it.
 - Android Auto only lists apps from the Play Store unless you allow others: in Android Auto's settings, tap **Version** repeatedly to unlock developer settings, then turn on **Unknown sources** in the developer settings menu.
@@ -89,10 +89,11 @@ With shuffle on, a playlist (or album, mix...) doesn't repeat a song until every
 Tidal's **Settings** page gets a **Wave** tab next to General, Account and About:
 
 - **Fair shuffle** on or off.
+- **Played this round**: each list (playlist, album, mix...) with how many of its songs have played in its current fair shuffle round (`12 of 40 played`), and a **Reset** button to start that list's round over.
 - **Updates**: *Check now* looks for a newer release of the app on GitHub and installs it with Android's installer (Android asks to confirm, and the first time asks to allow Wave to install apps). With **Check automatically** on, Wave checks once a day, the first time it's opened, and offers the update.
 - **License**: the GPL-3.0 terms in short, with a link to the source code and the full license.
 
-Updates only install over a Wave signed with the same key: a test build has to be uninstalled first.
+Test builds (Wave Beta) don't update themselves; the official app updates as usual.
 
 ## Background playback
 
@@ -120,7 +121,7 @@ The APKs are written to `app/build/outputs/apk/tv/release/wave-<version>.apk` (T
 
 Each app has its own `versionName` and `versionCode`, in its flavor in `app/build.gradle.kts`. When a change to that file lands on `main`, the **Tag and release** workflow, for each app whose version has no release yet, creates its tag (`v<version>` for TV, `mobile-v<version>` for Wave Mobile), builds its APK signed with the release key (from the repository secrets) and publishes it as a GitHub release. It also keeps each app's download button pointing at its newest APK (the `latest-tv` and `latest-mobile` releases). An app whose version didn't change isn't rebuilt.
 
-APKs signed with different keys can't install over each other: switching between a release-signed and a debug-signed Wave means uninstalling first.
+Local builds without the release key are test builds: they're called **Wave Beta**, have their own app id (`com.wave.tv.beta`, `com.wave.mobile.beta`), are signed with the debug key and named `wave-beta-<version>.apk` / `wave-mobile-beta-<version>.apk`. They install alongside the official app (with their own sign-in) and don't update themselves.
 
 ## License
 

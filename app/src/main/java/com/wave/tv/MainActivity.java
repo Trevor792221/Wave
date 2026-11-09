@@ -682,9 +682,10 @@ public final class MainActivity extends Activity {
     /** JS -> Java. Called on a WebView thread, so hop to the main thread. */
     private final class Bridge {
         @JavascriptInterface
-        public void state(boolean nowPlaying, String t, String a, String art, double durMs, double posMs, String q) {
+        public void state(boolean nowPlaying, String t, String a, String art, double durMs, double posMs, String q, boolean fav) {
             handler.post(() -> {
                 setQuality(q == null ? "" : q);
+                WaveSession.setFavorite(fav);
                 onPageState(nowPlaying, t == null ? "" : t, a == null ? "" : a, art == null ? "" : art,
                         Math.max(0, (long) durMs), Math.max(0, (long) posMs));
             });
@@ -814,7 +815,7 @@ public final class MainActivity extends Activity {
 
     /** Once a day, the first time Wave opens: look for an update and offer it. */
     private void autoCheckForUpdates() {
-        if (!prefs.getBoolean("autoUpdate", true)) return;
+        if (BuildConfig.BETA || !prefs.getBoolean("autoUpdate", true)) return; // test builds don't update
         String today = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date());
         if (today.equals(prefs.getString("updateCheckedOn", ""))) return;
         prefs.edit().putString("updateCheckedOn", today).apply();

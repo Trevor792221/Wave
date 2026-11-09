@@ -45,9 +45,9 @@
   function report() {
     fairAttach();
     if (!window.WaveApp) return;
-    var e = media(), n = { title: '', artist: '', art: '', dur: 0, pos: 0, quality: '' };
+    var e = media(), n = { title: '', artist: '', art: '', dur: 0, pos: 0, quality: '', fav: false };
     try { n = nowPlaying(); } catch (x) {} // play/pause is reported even if the song details can't be read
-    WaveApp.state(!!(e && !e.paused && !e.ended), n.title, n.artist, n.art, n.dur, n.pos, n.quality || '');
+    WaveApp.state(!!(e && !e.paused && !e.ended), n.title, n.artist, n.art, n.dur, n.pos, n.quality || '', !!n.fav);
   }
   function txt(el) { return el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''; }
   // What's playing, for Android's media controls and notification. Android's WebView has no
@@ -86,7 +86,32 @@
     }
     if (dur) pos = Math.min(pos, dur);
     return { title: title, artist: artist, art: art, dur: Math.round(dur * 1000), pos: Math.round(pos * 1000),
-             quality: streamQuality(pc && pc.playbackContext) };
+             quality: streamQuality(pc && pc.playbackContext), fav: inCollection() };
+  }
+  // The playing track's id: from Tidal's play queue, else its player state.
+  function currentTrackId() {
+    try {
+      var st = fairStore.getState(), q = st.playQueue, el = q && q.elements && q.elements[q.currentIndex];
+      var id = el && el.mediaItemId;
+      if (!id && st.playbackControls && st.playbackControls.mediaProduct) id = st.playbackControls.mediaProduct.productId;
+      id = Number(id);
+      return id > 0 ? id : 0;
+    } catch (e) { return 0; }
+  }
+  // Whether the song is in My Collection: Tidal's own list of favourite tracks, else its heart button.
+  function inCollection() {
+    var id = currentTrackId();
+    if (fairStore && id) {
+      try {
+        var f = fairStore.getState().favorites;
+        if (f && Array.isArray(f.tracks)) {
+          for (var i = 0; i < f.tracks.length; i++) if (Number(f.tracks[i]) === id) return true;
+          return false;
+        }
+      } catch (e) {}
+    }
+    var h = document.querySelector('[data-test="footer-favorite-button"]');
+    return !!h && h.getAttribute('aria-checked') === 'true';
   }
   // What Tidal is actually streaming, from its player state: "FLAC · 24-bit / 96 kHz · 2304 kbps".
   function streamQuality(c) {
@@ -247,6 +272,8 @@
     if (fairCountNext) { fairCountNext = false; mem.n = q.elements.length; }
     // Songs Tidal adds after the list (autoplay / related music) aren't part of the round.
     var n = mem.n && mem.n <= q.elements.length ? mem.n : q.elements.length;
+    if (q.sourceName) mem.name = String(q.sourceName).slice(0, 80); // for the Wave tab
+    mem.size = n;
     if (idx >= n) return;
 
     var movedOn = prev && prev.src === src && (idx === prev.idx + 1 || (idx === 0 && prev.idx === n - 1));
@@ -278,6 +305,7 @@
       note('Fair shuffle: ' + count + ' of ' + n + ' played');
     }
     fairSave();
+    renderRounds();
   }
   // ---------- Spectrum analyzer placement ----------
   // While Tidal's full-screen player is open, tell the app where the analyzer's bars go: over the
@@ -564,6 +592,25 @@
   };
 
   W.cmd = function (c) {
+    if (c === 'favorite') { // Add to / Remove from My Collection
+      var how = 'no song';
+      var id = currentTrackId();
+      if (fairStore && id) {
+        // Tidal's own command, the one its heart sends (seen with Wave Probe); Tidal saves it to the account.
+        try {
+          fairStore.dispatch({ type: 'content/TOGGLE_FAVORITE_ITEMS',
+            payload: { from: 'heart', items: [{ itemId: id, itemType: 'track' }], moduleId: 'NOW_PLAYING' } });
+          how = 'Tidal';
+        } catch (x) {}
+      }
+      if (how !== 'Tidal') { // Tidal's store not reachable: its heart button in the player bar
+        var h = document.querySelector('[data-test="footer-favorite-button"],[data-test="mobile-now-playing-favorite"]');
+        if (h) { h.click(); how = 'clicked'; }
+      }
+      setTimeout(report, 400); // tell the app the new state
+      setTimeout(report, 1500);
+      return 'favorite: ' + how;
+    }
     var e = media();
     if (fairStore) { // straight to Tidal's player
       if (c === 'toggle') {
@@ -863,6 +910,13 @@
     s1.appendChild(card([fair]));
     p.appendChild(s1);
 
+    // Each list's fair shuffle round: how many of its songs have played, with a reset.
+    var s1b = section('Played this round');
+    ui.rounds = el('div', 'wv-card');
+    s1b.appendChild(ui.rounds);
+    p.appendChild(s1b);
+    renderRounds();
+
     var s2 = section('Updates');
     var ver = row((info.name || 'Wave') + ' ' + (info.version || ''), 'Updates come from Wave\'s releases on GitHub.');
     ui.status = ver.sub;
@@ -904,6 +958,33 @@
     if (available) ui.check.setAttribute('data-install', '1'); else ui.check.removeAttribute('data-install');
     ui.check.disabled = busy;
   };
+  function renderRounds() {
+    var box = ui && ui.rounds; // only while Wave's page is up (it's cleared when the page closes)
+    if (!box) return;
+    box.textContent = '';
+    var keys = Object.keys(fairMem).filter(function (k) { return fairMem[k].h && fairMem[k].h.length; })
+      .sort(function (a, b) { return fairMem[b].t - fairMem[a].t; });
+    if (!keys.length) {
+      box.appendChild(row('Nothing played yet', 'Lists you play appear here with how many of their songs have played this round.'));
+      return;
+    }
+    keys.forEach(function (k) {
+      var m = fairMem[k], type = k.split(':')[0].toLowerCase().replace(/_/g, ' ');
+      var played = m.h.length, size = m.size || m.n || 0;
+      var r = row(m.name || (type ? type.charAt(0).toUpperCase() + type.slice(1) : 'A list'),
+        size ? played + ' of ' + size + ' played' : played + ' played');
+      var reset = el('button', 'wv-btn', 'Reset');
+      reset.type = 'button';
+      reset.onclick = function () {
+        m.h = []; // a new round: every song is new again
+        if (fairLast && fairLast.src === k) fairLast = null;
+        fairSave();
+        renderRounds();
+      };
+      r.appendChild(reset);
+      box.appendChild(r);
+    });
+  }
   function syncSettings() {
     if (ui.fair && wavePanel) ui.fair.setAttribute('aria-checked', String(fairOn));
   }
