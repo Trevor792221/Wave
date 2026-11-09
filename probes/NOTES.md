@@ -7,3 +7,4 @@
 | `05-wave-probe-4.apk` | Nov 9 | Records what Tidal's heart button sends (rebuilt) |
 | `06-wave-probe-4.1.apk` | Nov 9 | Records the heart's command in full |
 | `07-wave-probe-5.apk` | Nov 9 | Records Tidal's settings commands (audio quality) in full |
+| `08-wave-probe-6.apk` | Nov 9 | Records every switch on the page with its row and card (for placing Soft pause above Crossfade) |
