@@ -60,6 +60,7 @@
 | `58-wave-mobile-beta-1.0.9-analyzer-as-1.0.8.apk` | Nov 9 | 1.0.9 with soft pause; the analyzer works as in 1.0.8 again (the delayed release made it freeze on pause) |
 | `59-wave-mobile-beta-1.0.9-fade-sliders.apk` | Nov 9 | 1.0.9 with fade-out and fade-in sliders (ms) in the Wave tab, for trying fade lengths |
 | `60-wave-mobile-beta-1.0.9-fade-steps.apk` | Nov 9 | 1.0.9 with sliders for the fade lengths and their number of volume steps |
+| `61-wave-mobile-beta-1.0.9-soft-pause-switch.apk` | Nov 9 | 1.0.9: 800 ms fades in 200 steps; Soft pause switch above Tidal's Crossfade (General tab) |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
