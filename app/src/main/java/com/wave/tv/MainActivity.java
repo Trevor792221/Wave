@@ -40,6 +40,7 @@ public final class MainActivity extends Activity {
     private static final long CURSOR_HIDE_MS = 4000;
     /** Release the background service this long after playback pauses. */
     private static final long IDLE_STOP_MS = 10 * 60 * 1000;
+    private static final long WAKE_MS = 15 * 1000;
 
 
     private TvWebView web;
@@ -63,6 +64,9 @@ public final class MainActivity extends Activity {
     private boolean playing, serviceOn, visible;
     private String title = "", artist = "";
     private final Runnable stopService = this::stopPlaybackService;
+    /** Until when (elapsedRealtime) the page stays awake after a button press. */
+    private long wakeUntil;
+    private final Runnable applyWake = this::applyWake;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -515,6 +519,12 @@ public final class MainActivity extends Activity {
 
     /** Runs a player command inside the page (works in the background too). */
     void command(String c) {
+        // Wake the page fully, as if it were on screen, so Tidal can start the song even after a
+        // phone call paused it; it goes back to sleep if nothing plays.
+        wakeUntil = android.os.SystemClock.elapsedRealtime() + WAKE_MS;
+        applyWake();
+        handler.removeCallbacks(applyWake);
+        handler.postDelayed(applyWake, WAKE_MS);
         web.onResume();
         web.resumeTimers();
         web.evaluateJavascript("window.__wave&&window.__wave.cmd('" + c + "')", null);
@@ -550,7 +560,7 @@ public final class MainActivity extends Activity {
         barAnalyzer.update(); // runs only while playing
 
         handler.removeCallbacks(stopService);
-        web.setKeepVisible(playing);
+        applyWake();
         if (playing) {
             WaveSession.get(this).setActive(true);
             askPhonePermissions();
@@ -559,6 +569,23 @@ public final class MainActivity extends Activity {
         } else if (serviceOn) {
             PlaybackService.refresh(this);
             handler.postDelayed(stopService, IDLE_STOP_MS);
+        }
+    }
+
+    /**
+     * The page is kept awake, as if on screen, while music plays, for 10 minutes after it pauses
+     * (while the notification is up) and for a moment after any button press.
+     */
+    private boolean awake() {
+        return playing || serviceOn || android.os.SystemClock.elapsedRealtime() < wakeUntil;
+    }
+
+    private void applyWake() {
+        boolean on = awake();
+        web.setKeepVisible(on);
+        if (!on && !visible) {
+            web.onPause();
+            web.pauseTimers();
         }
     }
 
@@ -606,11 +633,7 @@ public final class MainActivity extends Activity {
         if (!serviceOn) return;
         stopService(new Intent(this, PlaybackService.class));
         serviceOn = false;
-        web.setKeepVisible(false);
-        if (!visible) {
-            web.onPause();
-            web.pauseTimers();
-        }
+        applyWake(); // the page sleeps now, unless it's on screen
     }
 
     /** JS -> Java. Called on a WebView thread, so hop to the main thread. */
@@ -877,8 +900,9 @@ public final class MainActivity extends Activity {
         visible = false;
         updateSpectrum(); // stops it: nothing to draw while Wave isn't on screen
         CookieManager.getInstance().flush(); // keep the Tidal login
-        // Keep the page running while music plays; otherwise let it sleep.
-        if (!playing) {
+        // Keep the page running while music plays or was paused only a short while ago (a phone
+        // call, a stop at the shop): the car and headphone buttons can then carry on.
+        if (!awake()) {
             web.onPause();
             web.pauseTimers();
         }

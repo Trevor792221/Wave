@@ -17,7 +17,9 @@ import java.util.Set;
  *
  * Tidal's streams are DRM-protected, so the page can't read them; Android's Visualizer measures
  * the decoded output instead (it needs the microphone permission; nothing is recorded). One
- * Visualizer is shared by every analyzer on screen and released when none is. Its built-in FFT is
+ * Visualizer is shared by every analyzer on screen and released when none is; it's restarted when
+ * the sound moves to another output, and the bars hide when it hears nothing (Android Auto takes
+ * the sound where it can't be measured). Its built-in FFT is
  * split into bars spaced on a log scale from the lowest frequency it measures (~47 Hz) to 20 kHz, in dB. Bars rise at once and fall
  * smoothly, with a peak marker that holds briefly.
  */
@@ -35,6 +37,22 @@ final class SpectrumView extends View {
     private static byte[] fft;
     private static int fftRateMilliHz;
     private static long fftVersion;
+    /** When the capture last heard anything, and when it started (uptimeMillis). */
+    private static long heardAt, startedAt;
+    private static final long SILENT_HIDE_MS = 3000;
+    private static android.media.AudioManager audio;
+    /** Sound moved to another output (Android Auto, Bluetooth, headphones): capture it there. */
+    private static final android.media.AudioDeviceCallback ROUTE = new android.media.AudioDeviceCallback() {
+        @Override
+        public void onAudioDevicesAdded(android.media.AudioDeviceInfo[] added) {
+            reopen();
+        }
+
+        @Override
+        public void onAudioDevicesRemoved(android.media.AudioDeviceInfo[] removed) {
+            reopen();
+        }
+    };
     /**
      * The scale's low end: the lowest frequency Android's capture measures (its first FFT bin,
      * ~47 Hz at 48 kHz output, ~43 Hz at 44.1 kHz). Nothing below it is measured, so the bars and
@@ -53,6 +71,12 @@ final class SpectrumView extends View {
             if (fft == null || fft.length != data.length) fft = new byte[data.length];
             System.arraycopy(data, 0, fft, 0, data.length);
             fftRateMilliHz = rate;
+            for (byte b : data) {
+                if (b != 0) {
+                    heardAt = SystemClock.uptimeMillis();
+                    break;
+                }
+            }
             if (rate > 0) lowHz = rate / 1000f / data.length;
             fftVersion++;
         }
@@ -155,34 +179,66 @@ final class SpectrumView extends View {
     /** Starts this analyzer (the microphone permission must already be granted). */
     void start() {
         if (!running.add(this)) return;
-        if (visualizer == null) {
-            try {
-                Visualizer v = new Visualizer(0); // the TV's output mix
-                v.setEnabled(false);
-                v.setCaptureSize(Math.min(1024, Visualizer.getCaptureSizeRange()[1]));
-                v.setDataCaptureListener(CAPTURE, Visualizer.getMaxCaptureRate(), false, true);
-                v.setEnabled(true);
-                visualizer = v;
-            } catch (RuntimeException e) {
-                visualizer = null; // not available on this TV: the bars just stay down
-            }
+        if (visualizer == null) open();
+        if (audio == null) {
+            audio = (android.media.AudioManager) getContext().getApplicationContext().getSystemService(Context.AUDIO_SERVICE);
+            audio.registerAudioDeviceCallback(ROUTE, new android.os.Handler(android.os.Looper.getMainLooper()));
         }
         lastFrame = 0;
         postInvalidateOnAnimation();
     }
 
     void stop() {
-        if (running.remove(this) && running.isEmpty() && visualizer != null) {
-            try {
-                visualizer.setEnabled(false);
-            } catch (RuntimeException ignored) {
-                // Released anyway.
+        if (running.remove(this) && running.isEmpty()) {
+            close();
+            if (audio != null) {
+                audio.unregisterAudioDeviceCallback(ROUTE);
+                audio = null;
             }
-            visualizer.release();
-            visualizer = null;
-            fft = null;
         }
         reset();
+    }
+
+    private static void open() {
+        startedAt = SystemClock.uptimeMillis();
+        try {
+            Visualizer v = new Visualizer(0); // the device's output mix
+            v.setEnabled(false);
+            v.setCaptureSize(Math.min(1024, Visualizer.getCaptureSizeRange()[1]));
+            v.setDataCaptureListener(CAPTURE, Visualizer.getMaxCaptureRate(), false, true);
+            v.setEnabled(true);
+            visualizer = v;
+        } catch (RuntimeException e) {
+            visualizer = null; // not available here: the bars stay hidden
+        }
+    }
+
+    private static void close() {
+        if (visualizer == null) return;
+        try {
+            visualizer.setEnabled(false);
+        } catch (RuntimeException ignored) {
+            // Released anyway.
+        }
+        visualizer.release();
+        visualizer = null;
+        fft = null;
+    }
+
+    /** A capture taken on the old output hears nothing on the new one: start it again. */
+    private static void reopen() {
+        if (running.isEmpty()) return;
+        close();
+        open();
+    }
+
+    /**
+     * Nothing heard for a few seconds: the sound goes where Android can't measure it (Android
+     * Auto, for one), so the bars are hidden instead of standing still.
+     */
+    private static boolean deaf() {
+        long now = SystemClock.uptimeMillis();
+        return now - Math.max(heardAt, startedAt) > SILENT_HIDE_MS;
     }
 
     /** This analyzer's bars from the latest capture. */
@@ -226,6 +282,10 @@ final class SpectrumView extends View {
         float dt = lastFrame == 0 ? 0 : Math.min(0.1f, (now - lastFrame) / 1000f);
         lastFrame = now;
 
+        if (deaf()) {
+            if (running.contains(this)) postInvalidateOnAnimation();
+            return;
+        }
         float w = getWidth(), h = getHeight();
         float barsH = h - labelHeight(), slot = w / bars, gap = Math.max(1, slot * 0.2f), cap = 2 * density;
         for (int b = 0; b < bars; b++) {
