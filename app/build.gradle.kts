@@ -7,9 +7,28 @@ android {
         applicationId = "com.wave.tv"
         minSdk = 23
         targetSdk = 35
-        versionCode = 42
-        versionName = "2.0.3"
     }
+    // Two apps from one codebase: Wave (TV, com.wave.tv) and Wave Mobile (phones and Android
+    // Auto, com.wave.mobile). BuildConfig.TV tells the shared code which one it is. Each has its
+    // own version: TV releases are tagged v<version>, Wave Mobile's mobile-v<version>.
+    flavorDimensions += "device"
+    productFlavors {
+        create("tv") {
+            dimension = "device"
+            applicationId = "com.wave.tv"
+            versionCode = 42
+            versionName = "2.0.3"
+            buildConfigField("boolean", "TV", "true")
+        }
+        create("mobile") {
+            dimension = "device"
+            applicationId = "com.wave.mobile"
+            versionCode = 100
+            versionName = "1.0.0"
+            buildConfigField("boolean", "TV", "false")
+        }
+    }
+    buildFeatures { buildConfig = true }
     // Release signing comes from environment variables (set by the release workflow from repo
     // secrets). Without them, release builds fall back to the local debug key.
     val releaseKeystore = System.getenv("WAVE_KEYSTORE_FILE")
@@ -38,12 +57,14 @@ android {
 }
 // No dependencies: plain Android framework only.
 
-// Name APKs after the version, e.g. wave-0.9.1.apk (debug builds get a -debug suffix).
+// Name APKs after the app and version: wave-2.0.3.apk (TV), wave-mobile-2.0.3.apk (phone).
+// Debug builds get a -debug suffix.
 android.applicationVariants.all {
     val variant = this
     outputs.all {
+        val app = if (variant.flavorName == "mobile") "wave-mobile" else "wave"
         val suffix = if (variant.buildType.name == "release") "" else "-${variant.buildType.name}"
         (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
-            "wave-${variant.versionName}$suffix.apk"
+            "$app-${variant.versionName}$suffix.apk"
     }
 }

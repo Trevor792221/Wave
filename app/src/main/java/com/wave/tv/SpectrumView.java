@@ -18,15 +18,15 @@ import java.util.Set;
  * Tidal's streams are DRM-protected, so the page can't read them; Android's Visualizer measures
  * the decoded output instead (it needs the microphone permission; nothing is recorded). One
  * Visualizer is shared by every analyzer on screen and released when none is. Its built-in FFT is
- * split into bars spaced on a log scale from 20 Hz to 20 kHz, in dB. Bars rise at once and fall
+ * split into bars spaced on a log scale from the lowest frequency it measures (~47 Hz) to 20 kHz, in dB. Bars rise at once and fall
  * smoothly, with a peak marker that holds briefly.
  */
 final class SpectrumView extends View {
-    private static final float LOW_HZ = 20, HIGH_HZ = 20000, FLOOR_DB = -50;
+    private static final float HIGH_HZ = 20000, FLOOR_DB = -50;
     private static final float FALL_DB_PER_S = 45, PEAK_FALL_DB_PER_S = 25;
     private static final long PEAK_HOLD_MS = 400;
-    private static final float[] LABEL_HZ = {20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000};
-    private static final String[] LABELS = {"20", "50", "100", "200", "500", "1k", "2k", "5k", "10k", "20k"};
+    private static final float[] LABEL_HZ = {50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000};
+    private static final String[] LABELS = {"50", "100", "200", "500", "1k", "2k", "5k", "10k", "20k"};
     static final int DEFAULT_COLOR = 0xFF33C3F0;
 
     // ---- The shared capture ----
@@ -35,6 +35,12 @@ final class SpectrumView extends View {
     private static byte[] fft;
     private static int fftRateMilliHz;
     private static long fftVersion;
+    /**
+     * The scale's low end: the lowest frequency Android's capture measures (its first FFT bin,
+     * ~47 Hz at 48 kHz output, ~43 Hz at 44.1 kHz). Nothing below it is measured, so the bars and
+     * labels start there.
+     */
+    private static float lowHz = 48000f / 1024;
 
     private static final Visualizer.OnDataCaptureListener CAPTURE = new Visualizer.OnDataCaptureListener() {
         @Override
@@ -47,6 +53,7 @@ final class SpectrumView extends View {
             if (fft == null || fft.length != data.length) fft = new byte[data.length];
             System.arraycopy(data, 0, fft, 0, data.length);
             fftRateMilliHz = rate;
+            if (rate > 0) lowHz = rate / 1000f / data.length;
             fftVersion++;
         }
     };
@@ -186,22 +193,30 @@ final class SpectrumView extends View {
         int bins = f.length / 2; // bins 1 .. bins-1 have re/im
         float binHz = fftRateMilliHz / 1000f / f.length;
         if (binHz <= 0) return;
-        double ratio = HIGH_HZ / LOW_HZ;
+        double low = binHz, ratio = HIGH_HZ / low;
         for (int b = 0; b < bars; b++) {
-            double lo = LOW_HZ * Math.pow(ratio, (double) b / bars);
-            double hi = LOW_HZ * Math.pow(ratio, (double) (b + 1) / bars);
-            int k0 = (int) Math.ceil(lo / binHz), k1 = (int) Math.floor(hi / binHz);
-            if (k1 < k0) k0 = k1 = (int) Math.round(Math.sqrt(lo * hi) / binHz); // narrower than a bin
-            k0 = Math.max(1, k0);
-            k1 = Math.min(bins - 1, k1);
+            double lo = low * Math.pow(ratio, (double) b / bars);
+            double hi = low * Math.pow(ratio, (double) (b + 1) / bars);
+            int k0 = Math.max(1, (int) Math.ceil(lo / binHz)), k1 = Math.min(bins - 1, (int) Math.floor(hi / binHz));
             double power = 0;
-            for (int k = k0; k <= k1; k++) {
-                float re = f[2 * k], im = f[2 * k + 1];
-                power += re * re + im * im;
+            if (k1 >= k0) {
+                for (int k = k0; k <= k1; k++) power += power(f, k); // the bins inside the bar
+            } else {
+                // Narrower than a bin (the low end): the level at the bar's centre, between the two
+                // nearest bins, so neighbouring bass bars don't all show the same bin.
+                double c = Math.max(1, Math.min(bins - 1, Math.sqrt(lo * hi) / binHz));
+                int k = (int) Math.floor(c);
+                double t = c - k;
+                power = k + 1 < bins ? (1 - t) * power(f, k) + t * power(f, k + 1) : power(f, k);
             }
             float db = (float) (10 * Math.log10(power / (128.0 * 128.0) + 1e-9));
             target[b] = Math.max(FLOOR_DB, Math.min(0, db));
         }
+    }
+
+    private static double power(byte[] f, int k) {
+        float re = f[2 * k], im = f[2 * k + 1];
+        return re * re + im * im;
     }
 
     @Override
@@ -228,10 +243,12 @@ final class SpectrumView extends View {
             c.drawRect(x, py, x2, py + cap, peakPaint);
         }
         if (labels) {
-            float ty = h - 3 * density, logRange = (float) Math.log(HIGH_HZ / LOW_HZ);
+            // Each label where its frequency really is on the scale (lowHz .. 20 kHz).
+            float ty = h - 3 * density, logRange = (float) Math.log(HIGH_HZ / lowHz);
             for (int i = 0; i < LABEL_HZ.length; i++) {
+                if (LABEL_HZ[i] < lowHz) continue;
                 float half = labelPaint.measureText(LABELS[i]) / 2;
-                float x = w * (float) Math.log(LABEL_HZ[i] / LOW_HZ) / logRange;
+                float x = w * (float) Math.log(LABEL_HZ[i] / lowHz) / logRange;
                 c.drawText(LABELS[i], Math.max(half, Math.min(w - half, x)), ty, labelPaint);
             }
         }

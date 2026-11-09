@@ -5,8 +5,6 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.media.MediaMetadata;
-import android.media.session.MediaSession;
-import android.media.session.PlaybackState;
 import android.os.Build;
 import android.net.Uri;
 import android.os.Bundle;
@@ -62,7 +60,6 @@ public final class MainActivity extends Activity {
     private boolean ringMode;
     private boolean menuLongPress, okDownSent, okUpPending;
     private String bridgeJs;
-    private MediaSession session;
     private boolean playing, serviceOn, visible;
     private String title = "", artist = "";
     private final Runnable stopService = this::stopPlaybackService;
@@ -72,10 +69,11 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         installCrashLog();
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // A TV shouldn't dim while Wave is up; a phone keeps its normal screen timeout.
+        if (BuildConfig.TV) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         prefs = getSharedPreferences("wave", MODE_PRIVATE);
         widthIndex = prefs.getInt("width", 1);
-        ringMode = prefs.getBoolean("ring", true);
+        ringMode = prefs.getBoolean("ring", BuildConfig.TV); // touch phones start without the ring
         density = getResources().getDisplayMetrics().density;
 
         root = new FrameLayout(this);
@@ -149,6 +147,7 @@ public final class MainActivity extends Activity {
                 applyViewport();
                 v.evaluateJavascript(bridgeJs, null); // no-op if already installed
                 if (ringMode) v.evaluateJavascript("window.__wave&&__wave.ring()", null);
+                if (!BuildConfig.TV) v.evaluateJavascript("window.__wave&&__wave.enableSwipes()", null);
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
@@ -179,7 +178,8 @@ public final class MainActivity extends Activity {
             cx = root.getWidth() / 2f;
             cy = root.getHeight() / 2f;
             cursor.moveTo(cx, cy);
-            if (ringMode) cursor.setVisibility(View.INVISIBLE);
+            // The pointer shows once the D-pad is used; on a touch phone that's normally never.
+            if (ringMode || !BuildConfig.TV) cursor.setVisibility(View.INVISIBLE);
             else pokeCursor();
         });
     }
@@ -195,6 +195,13 @@ public final class MainActivity extends Activity {
 
     /** Lay the site out at a desktop width and let the WebView scale it to the TV. */
     private void applyViewport() {
+        if (!BuildConfig.TV) {
+            // Phones: the page at the phone's own width and normal size (Tidal's layout adapts).
+            web.evaluateJavascript("(function(){var m=document.querySelector('meta[name=viewport]');"
+                    + "if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}"
+                    + "m.content='width=device-width,initial-scale=1';})()", null);
+            return;
+        }
         int w = VIEWPORT_WIDTHS[widthIndex];
         web.evaluateJavascript(
                 "(function(w){var m=document.querySelector('meta[name=viewport]');"
@@ -461,22 +468,53 @@ public final class MainActivity extends Activity {
 
     // ---------- Playback: media session, page bridge, background service ----------
 
-    @SuppressWarnings("deprecation")
     private void setupMediaSession() {
-        session = new MediaSession(this, "Wave");
-        session.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS | MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS);
-        session.setCallback(new MediaSession.Callback() {
-            @Override public void onPlay() { command("play"); }
-            @Override public void onPause() { command("pause"); }
-            @Override public void onStop() { command("pause"); }
-            @Override public void onSkipToNext() { command("next"); }
-            @Override public void onSkipToPrevious() { command("prev"); }
-        });
-        publishSessionState();
+        WaveSession.get(this);
+        WaveSession.attach(this);
+        watchCarConnection();
+    }
+
+    // ---------- Android Auto (Wave Mobile) ----------
+    // Android Auto tells apps it connected the way Google's car library listens for it: a broadcast,
+    // then its connection provider says the state (0 = not connected). On connecting, playback
+    // carries on by itself.
+    private static final String CAR_UPDATED = "androidx.car.app.connection.action.CAR_CONNECTION_UPDATED";
+    private android.content.BroadcastReceiver carReceiver;
+    private boolean inCar;
+
+    private void watchCarConnection() {
+        if (BuildConfig.TV) return;
+        carReceiver = new android.content.BroadcastReceiver() {
+            @Override
+            public void onReceive(android.content.Context c, Intent i) {
+                checkCar();
+            }
+        };
+        android.content.IntentFilter f = new android.content.IntentFilter(CAR_UPDATED);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(carReceiver, f, android.content.Context.RECEIVER_EXPORTED);
+        else registerReceiver(carReceiver, f);
+        checkCar(); // already in the car when Wave opens
+    }
+
+    private void checkCar() {
+        new Thread(() -> {
+            int state = 0;
+            try (android.database.Cursor c = getContentResolver().query(Uri.parse("content://androidx.car.app.connection"),
+                    new String[]{"CarConnectionState"}, null, null, null)) {
+                if (c != null && c.moveToFirst()) state = c.getInt(0);
+            } catch (RuntimeException e) {
+                // No Android Auto on this phone.
+            }
+            boolean now = state != 0;
+            handler.post(() -> {
+                if (now && !inCar) WaveSession.carConnected();
+                inCar = now;
+            });
+        }).start();
     }
 
     /** Runs a player command inside the page (works in the background too). */
-    private void command(String c) {
+    void command(String c) {
         web.onResume();
         web.resumeTimers();
         web.evaluateJavascript("window.__wave&&window.__wave.cmd('" + c + "')", null);
@@ -494,25 +532,23 @@ public final class MainActivity extends Activity {
     }
 
     /** Called (via the bridge) whenever the page's play state or track changes. */
-    private void onPageState(boolean nowPlaying, String t, String a) {
-        if (nowPlaying == playing && t.equals(title) && a.equals(artist)) return;
-        boolean trackChanged = !t.equals(title) || !a.equals(artist);
+    private String artUrl = "";
+
+    private void onPageState(boolean nowPlaying, String t, String a, String art) {
+        if (nowPlaying == playing && t.equals(title) && a.equals(artist) && art.equals(artUrl)) return;
+        boolean trackChanged = !t.equals(title) || !a.equals(artist) || !art.equals(artUrl);
         playing = nowPlaying;
         title = t;
         artist = a;
-        if (trackChanged) {
-            session.setMetadata(new MediaMetadata.Builder()
-                    .putString(MediaMetadata.METADATA_KEY_TITLE, t)
-                    .putString(MediaMetadata.METADATA_KEY_ARTIST, a)
-                    .build());
-        }
+        artUrl = art;
+        if (trackChanged) publishMetadata(t, a, art);
         publishSessionState();
         barAnalyzer.update(); // runs only while playing
 
         handler.removeCallbacks(stopService);
         web.setKeepVisible(playing);
         if (playing) {
-            session.setActive(true);
+            WaveSession.get(this).setActive(true);
             if (!serviceOn) startPlaybackService();
             else PlaybackService.update(this, t, a);
         } else if (serviceOn) {
@@ -522,13 +558,29 @@ public final class MainActivity extends Activity {
     }
 
     private void publishSessionState() {
-        session.setPlaybackState(new PlaybackState.Builder()
-                .setActions(PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE
-                        | PlaybackState.ACTION_PLAY_PAUSE | PlaybackState.ACTION_STOP
-                        | PlaybackState.ACTION_SKIP_TO_NEXT | PlaybackState.ACTION_SKIP_TO_PREVIOUS)
-                .setState(playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED,
-                        PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1f)
-                .build());
+        WaveSession.setPlaying(playing);
+    }
+
+    /** Title and artist at once; the cover (for Android Auto and the lock screen) once downloaded. */
+    private void publishMetadata(String t, String a, String art) {
+        MediaMetadata.Builder m = new MediaMetadata.Builder()
+                .putString(MediaMetadata.METADATA_KEY_TITLE, t)
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, a);
+        WaveSession.setMetadata(m.build());
+        if (!art.startsWith("https://")) return;
+        new Thread(() -> {
+            android.graphics.Bitmap bmp = download(art);
+            if (bmp == null) return;
+            android.graphics.Bitmap small = android.graphics.Bitmap.createScaledBitmap(bmp, 320, 320 * bmp.getHeight() / Math.max(1, bmp.getWidth()), true);
+            handler.post(() -> {
+                if (!art.equals(artUrl)) return; // the song changed meanwhile
+                WaveSession.setMetadata(new MediaMetadata.Builder()
+                        .putString(MediaMetadata.METADATA_KEY_TITLE, t)
+                        .putString(MediaMetadata.METADATA_KEY_ARTIST, a)
+                        .putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, small)
+                        .build());
+            });
+        }).start();
     }
 
     private void startPlaybackService() {
@@ -557,8 +609,8 @@ public final class MainActivity extends Activity {
     /** JS -> Java. Called on a WebView thread, so hop to the main thread. */
     private final class Bridge {
         @JavascriptInterface
-        public void state(boolean nowPlaying, String t, String a) {
-            handler.post(() -> onPageState(nowPlaying, t == null ? "" : t, a == null ? "" : a));
+        public void state(boolean nowPlaying, String t, String a, String art) {
+            handler.post(() -> onPageState(nowPlaying, t == null ? "" : t, a == null ? "" : a, art == null ? "" : art));
         }
 
         /** Where the cover analyzer goes while Tidal's full-screen player is open, or "off". */
@@ -809,7 +861,8 @@ public final class MainActivity extends Activity {
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
         stopPlaybackService();
-        session.release();
+        WaveSession.detach(this);
+        if (carReceiver != null) unregisterReceiver(carReceiver);
         // The analyzers share one capture across activities: let it go with this one.
         if (coverAnalyzer.view != null) coverAnalyzer.view.stop();
         if (barAnalyzer.view != null) barAnalyzer.view.stop();

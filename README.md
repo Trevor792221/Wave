@@ -1,6 +1,14 @@
 # Wave
 
-A small Android TV app (~40 KB, no libraries) for playing Tidal through its web player.
+Small Android apps (~40 KB each, no libraries) for playing Tidal through its web player:
+
+- **Wave** for Android TV, made for the remote.
+- **Wave Mobile** for phones, with swipe gestures and Android Auto.
+
+[![Download Wave Mobile](https://img.shields.io/badge/Download-Wave%20Mobile-33C3F0?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Trevor792221/Wave/releases/download/latest-mobile/wave-mobile.apk)
+[![Download Wave for TV](https://img.shields.io/badge/Download-Wave%20for%20TV-1E7FA8?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Trevor792221/Wave/releases/download/latest-tv/wave.apk)
+
+The buttons always download the newest version. Older versions are on the [releases page](https://github.com/Trevor792221/Wave/releases).
 
 Wave opens Tidal's web player full screen and makes it work with a TV remote. Playback, sign-in and Widevine DRM are all handled by Tidal's own site; Wave only grants the DRM permission to tidal.com pages.
 
@@ -27,11 +35,27 @@ When you pick a song (a track, Play or Shuffle on a playlist, or a song in the q
 
 On the on-screen keyboard, the Search / Go / Done key just closes the keyboard (Tidal's search updates as you type). The page's full-screen mode is turned off: Wave is already full screen.
 
+## Wave Mobile
+
+Wave Mobile is the same app for touch phones: everything below except the remote controls. In the full-screen player:
+
+- **Swipe left** for the next song, **swipe right** for the previous one. The cover follows your finger.
+- **Swipe down** from the upper part of the player to close it.
+
+Swipes that start on the player bar (its buttons and seek bar) are left to Tidal.
+
+### Android Auto
+
+Wave Mobile shows up in Android Auto as a media app with play/pause, next and previous, and the song's title, artist and cover. When the phone connects to Android Auto, playback carries on by itself.
+
+- Playback is Tidal's web page inside Wave, so open Wave Mobile on the phone before driving (it can stay in the background). If it isn't open, Android Auto asks you to open it.
+- Android Auto only lists apps from the Play Store unless you allow others: in Android Auto's settings, tap **Version** repeatedly to unlock developer settings, then turn on **Unknown sources** in the developer settings menu.
+
 ## Spectrum analyzers
 
 Two analyzers in the colour of the song's cover (its strongest colour):
 
-- **Over the album art** in the full-screen player: 30% opaque bars standing on the cover's bottom edge, with the frequencies (20 Hz – 20 kHz) just under the cover.
+- **Over the album art** in the full-screen player: 30% opaque bars standing on the cover's bottom edge, with the frequencies (from the lowest one Android measures, about 47 Hz, up to 20 kHz) just under the cover.
 - **In the player bar**, between the time and the buttons on the right: solid bars, while music plays and the full-screen player is closed.
 
 Tidal's streams are DRM-protected, so the page can't read them; Android's Visualizer measures the TV's sound output instead. Android asks for the microphone permission for this the first time; nothing is recorded.
@@ -65,11 +89,11 @@ Requires JDK 17+ and the Android SDK (platform 35).
 ./gradlew assembleRelease
 ```
 
-The APK is written to `app/build/outputs/apk/release/wave-<version>.apk`. It is signed with the release key when `WAVE_KEYSTORE_FILE`, `WAVE_KEYSTORE_PASSWORD`, `WAVE_KEY_ALIAS` and `WAVE_KEY_PASSWORD` are set, and with the local debug key otherwise.
+The APKs are written to `app/build/outputs/apk/tv/release/wave-<version>.apk` (TV) and `app/build/outputs/apk/mobile/release/wave-mobile-<version>.apk` (phone). They are signed with the release key when `WAVE_KEYSTORE_FILE`, `WAVE_KEYSTORE_PASSWORD`, `WAVE_KEY_ALIAS` and `WAVE_KEY_PASSWORD` are set, and with the local debug key otherwise.
 
 ## Releases
 
-Set `versionName` and `versionCode` in `app/build.gradle.kts`. When a change to `versionName` lands on `main`, the **Tag and release** workflow creates the `v<versionName>` tag, builds the APK signed with the release key (from the repository secrets) and publishes it as a GitHub release.
+Each app has its own `versionName` and `versionCode`, in its flavor in `app/build.gradle.kts`. When a change to that file lands on `main`, the **Tag and release** workflow, for each app whose version has no release yet, creates its tag (`v<version>` for TV, `mobile-v<version>` for Wave Mobile), builds its APK signed with the release key (from the repository secrets) and publishes it as a GitHub release. It also keeps each app's download button pointing at its newest APK (the `latest-tv` and `latest-mobile` releases). An app whose version didn't change isn't rebuilt.
 
 APKs signed with different keys can't install over each other: switching between a release-signed and a debug-signed Wave means uninstalling first.
 

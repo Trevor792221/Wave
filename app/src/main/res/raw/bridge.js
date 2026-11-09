@@ -5,6 +5,7 @@
 // - W.nav(dir) moves a highlight ring between clickable things (spatial navigation).
 // - Fair shuffle: with shuffle on, songs already played in this round of a playlist are skipped.
 // - Reports where the spectrum analyzer goes while Tidal's full-screen player is open.
+// - Wave Mobile: swipe gestures in the full-screen player (W.enableSwipes).
 (function () {
   // Installed only once fully set up (W.ready). A run that broke halfway gets replaced,
   // keeping any Media Session handlers it already captured.
@@ -44,8 +45,9 @@
   function report() {
     fairAttach();
     if (!window.WaveApp) return;
-    var e = media(), md = ms && ms.metadata;
-    WaveApp.state(!!(e && !e.paused && !e.ended), (md && md.title) || '', (md && md.artist) || '');
+    var e = media(), md = ms && ms.metadata, art = '';
+    if (md && md.artwork && md.artwork.length) art = md.artwork[md.artwork.length - 1].src || ''; // biggest last
+    WaveApp.state(!!(e && !e.paused && !e.ended), (md && md.title) || '', (md && md.artist) || '', art);
   }
   ['play', 'playing', 'pause', 'ended', 'emptied'].forEach(function (t) {
     document.addEventListener(t, report, true);
@@ -246,8 +248,15 @@
   function miniRect() {
     // Not while the full-screen player is open: the analyzer over the cover takes over there.
     if ((fairStore && playerOpen()) || playerTabsShown()) return 'off';
-    var footer = document.querySelector('[data-test="footer-player"]'), fr = footer && rectOf(footer);
+    var footer = document.querySelector('[data-test="footer-player"]') || compactBar(), fr = footer && rectOf(footer);
     if (!fr || fr.top >= innerHeight) return 'off';
+    var img = footer.querySelector('[data-test="current-media-imagery"] img') || footer.querySelector('img');
+    var url = img ? (img.currentSrc || img.src || '') : '';
+    var r = wideBarSpot(footer, fr) || compactBarSpot(footer, img);
+    return r ? r.map(Math.round).concat(innerWidth).join(',') + '|' + url : 'off';
+  }
+  // The desktop-style player bar (TV): between the time readout and the queue/volume buttons.
+  function wideBarSpot(footer, fr) {
     var left = 0, el, er;
     ['play-controls', 'duration', 'progress-bar'].forEach(function (t) {
       el = footer.querySelector('[data-test="' + t + '"]'); er = el && rectOf(el);
@@ -255,12 +264,53 @@
     });
     var right = footer.querySelector('[data-test="play-queue-button"],[data-test="volume"]');
     var rr = right && rectOf(right);
-    if (!left || !rr) return 'off';
+    if (!left || !rr) return null;
     var l = left + 16, w = rr.left - 16 - l, top = fr.top + 14, h = fr.height - 28;
-    if (w < 60 || h < 20) return 'off';
-    var img = footer.querySelector('[data-test="current-media-imagery"] img');
-    var url = img ? (img.currentSrc || img.src || '') : '';
-    return [Math.round(l), Math.round(top), Math.round(w), Math.round(h), innerWidth].join(',') + '|' + url;
+    return w >= 60 && h >= 20 ? [l, top, w, h] : null;
+  }
+  // The compact player (phones): cover, title/artist, then play/pause and next. The analyzer goes
+  // in the gap between the end of the title/artist text and the first button, at the cover's height.
+  function compactBarSpot(footer, img) {
+    var ir = img && rectOf(img);
+    if (!ir) return null;
+    var btns = footer.querySelectorAll('button,[role="button"]'), right = Infinity, i;
+    for (i = 0; i < btns.length; i++) {
+      var br = rectOf(btns[i]);
+      if (br && br.left > ir.right && /play|pause|next|previous/i.test(label(btns[i]) + ' ' + (btns[i].textContent || ''))) right = Math.min(right, br.left);
+    }
+    if (right === Infinity) return null;
+    // Where the title/artist text really ends (not its box): measure the text itself.
+    var textRight = ir.right, walker = document.createTreeWalker(footer, NodeFilter.SHOW_TEXT), n, range = document.createRange();
+    while ((n = walker.nextNode())) {
+      if (!n.nodeValue.trim()) continue;
+      range.selectNodeContents(n);
+      var tr = range.getBoundingClientRect(), box = n.parentElement && rectOf(n.parentElement);
+      if (!tr.width || tr.left < ir.right - 2 || tr.left >= right || tr.bottom <= ir.top || tr.top >= ir.bottom) continue;
+      // A long title cut off with "…" is measured to where it shows, not its full length.
+      textRight = Math.max(textRight, box ? Math.min(tr.right, box.right) : tr.right);
+    }
+    // Small marks after the title (the explicit "E", upload or quality badges) count as text too.
+    var marks = footer.querySelectorAll('i,svg,img,[data-test*="badge"]');
+    for (var m = 0; m < marks.length; m++) {
+      if (marks[m] === img || marks[m].closest('button,[role="button"]')) continue;
+      var mr = rectOf(marks[m]);
+      if (mr && mr.width < 60 && mr.left >= ir.right - 2 && mr.left < right && mr.bottom > ir.top && mr.top < ir.bottom) textRight = Math.max(textRight, mr.right);
+    }
+    var l = textRight + 12, w = right - 12 - l, top = ir.top + ir.height * 0.15, h = ir.height * 0.7;
+    return w >= 40 && h >= 16 ? [l, top, w, h] : null;
+  }
+  // No footer-player marker: the bar around a play/pause button near the bottom of the screen.
+  function compactBar() {
+    var btns = document.querySelectorAll('button,[role="button"]');
+    for (var i = 0; i < btns.length; i++) {
+      var br = rectOf(btns[i]);
+      if (!br || br.top < innerHeight * 0.7 || !/\b(play|pause)\b/i.test(label(btns[i]))) continue;
+      for (var e = btns[i].parentElement; e && e !== document.body; e = e.parentElement) {
+        var er = rectOf(e);
+        if (er && er.width >= innerWidth * 0.8) return e;
+      }
+    }
+    return null;
   }
   var lastMini = '';
   function spot() {
@@ -600,5 +650,62 @@
   W.ringOff = function () { ringOn = false; cur = null; drawRing(); };
   // Turn the ring on without moving it; it appears as soon as the page has something to ring.
   W.ring = function () { ringOn = true; schedule(); };
+  // ---------- Swipe gestures (Wave Mobile) ----------
+  // In the full-screen player: swipe left for the next song, right for the previous one (the cover
+  // follows your finger), and down from the upper part of the player to close it. Swipes that
+  // start on the player bar (controls, seek bar) are left to Tidal.
+  W.enableSwipes = function () {
+    if (W.swipes) return;
+    W.swipes = true;
+    var sx = 0, sy = 0, active = false, art = null;
+    function inPlayer() { return (fairStore && playerOpen()) || playerTabsShown(); }
+    function settle(el) {
+      if (!el) return;
+      el.style.transition = 'transform .2s, opacity .2s';
+      el.style.transform = '';
+      el.style.opacity = '';
+    }
+    addEventListener('touchstart', function (e) {
+      active = false;
+      if (e.touches.length !== 1 || !inPlayer()) return;
+      var t = e.touches[0], f = document.querySelector('[data-test="footer-player"]'), fr = f && rectOf(f);
+      if (fr && t.clientY >= fr.top) return; // the player bar: Tidal's own controls and seek bar
+      sx = t.clientX; sy = t.clientY; active = true;
+      art = document.querySelector('[data-test="now-playing-artwork"]');
+    }, { passive: true, capture: true });
+    addEventListener('touchmove', function (e) {
+      if (!active || !art || e.touches.length !== 1) return;
+      var dx = e.touches[0].clientX - sx, dy = e.touches[0].clientY - sy;
+      if (Math.abs(dx) <= Math.abs(dy)) return;
+      art.style.transition = 'none';
+      art.style.transform = 'translateX(' + dx + 'px)';
+      art.style.opacity = String(Math.max(0.3, 1 - Math.abs(dx) / innerWidth));
+    }, { passive: true, capture: true });
+    function end(e) {
+      if (!active) return;
+      active = false;
+      var t = e.changedTouches && e.changedTouches[0];
+      if (!t) { settle(art); return; }
+      var dx = t.clientX - sx, dy = t.clientY - sy, w = innerWidth, el = art;
+      if (Math.abs(dx) > w * 0.18 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        if (el) { // slide the cover away, then back once the next song is in
+          el.style.transition = 'transform .15s, opacity .15s';
+          el.style.transform = 'translateX(' + (dx < 0 ? -w : w) + 'px)';
+          el.style.opacity = '0';
+          setTimeout(function () { settle(el); }, 300);
+        }
+        W.cmd(dx < 0 ? 'next' : 'prev');
+      } else if (dy > innerHeight * 0.15 && dy > Math.abs(dx) * 1.5 && sy < innerHeight * 0.6) {
+        settle(el);
+        var close = document.querySelector('[data-test="new-now-playing-close"]');
+        if (close) close.click();
+      } else {
+        settle(el);
+      }
+    }
+    addEventListener('touchend', end, { passive: true, capture: true });
+    addEventListener('touchcancel', function () { active = false; settle(art); }, { passive: true, capture: true });
+  };
+
   W.ready = true;
 })();
