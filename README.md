@@ -84,6 +84,16 @@ With shuffle on, a playlist (or album, mix...) doesn't repeat a song until every
 - Related music Tidal plays after a playlist ends isn't counted.
 - **Hold Tidal's shuffle button** to turn fair shuffle off (Tidal's own shuffle) or back on. Wave remembers the choice.
 
+## Wave settings
+
+Tidal's **Settings** page gets a **Wave** tab next to General, Account and About:
+
+- **Fair shuffle** on or off.
+- **Updates**: *Check now* looks for a newer release of the app on GitHub and installs it with Android's installer (Android asks to confirm, and the first time asks to allow Wave to install apps). With **Check automatically** on, Wave checks once a day, the first time it's opened, and offers the update.
+- **License**: the GPL-3.0 terms in short, with a link to the source code and the full license.
+
+Updates only install over a Wave signed with the same key: a test build has to be uninstalled first.
+
 ## Background playback
 
 Music keeps playing when you leave the app or the screen turns off. Wave runs a small foreground service while playing and releases it 10 minutes after playback pauses.

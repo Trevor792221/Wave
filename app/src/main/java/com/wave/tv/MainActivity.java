@@ -52,6 +52,7 @@ public final class MainActivity extends Activity {
     private final Analyzer barAnalyzer = new Analyzer(32, false, 1f, true);
     private FrameLayout root;
     private SharedPreferences prefs;
+    private Updater updater;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable hideCursor = () -> cursor.setVisibility(View.INVISIBLE);
     private float cx, cy, density;
@@ -76,6 +77,7 @@ public final class MainActivity extends Activity {
         // A TV shouldn't dim while Wave is up; a phone keeps its normal screen timeout.
         if (BuildConfig.TV) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         prefs = getSharedPreferences("wave", MODE_PRIVATE);
+        updater = new Updater(this);
         widthIndex = prefs.getInt("width", 1);
         ringMode = prefs.getBoolean("ring", BuildConfig.TV); // touch phones start without the ring
         density = getResources().getDisplayMetrics().density;
@@ -90,6 +92,7 @@ public final class MainActivity extends Activity {
         root.addView(web, new FrameLayout.LayoutParams(-1, -1));
         root.addView(cursor, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
+        handler.post(this::autoCheckForUpdates); // once everything is set up
         if (!BuildConfig.TV) keepClearOfSystemBars();
 
         WebSettings s = web.getSettings();
@@ -696,6 +699,45 @@ public final class MainActivity extends Activity {
             });
         }
 
+        // ---- Wave's settings tab ----
+        /** {"name","version","auto"} for the settings tab. */
+        @JavascriptInterface
+        public String appInfo() {
+            try {
+                return new org.json.JSONObject().put("name", Updater.appName()).put("version", BuildConfig.VERSION_NAME)
+                        .put("auto", prefs.getBoolean("autoUpdate", true)).toString();
+            } catch (org.json.JSONException e) {
+                return "{}";
+            }
+        }
+
+        @JavascriptInterface
+        public void setAutoUpdate(boolean on) {
+            prefs.edit().putBoolean("autoUpdate", on).apply();
+        }
+
+        /** "check" looks for a newer release; "install" installs the one found. Answers via __wave.updateStatus. */
+        @JavascriptInterface
+        public void update(String what) {
+            handler.post(() -> {
+                Updater.Listener l = MainActivity.this::showUpdateStatus;
+                if ("install".equals(what)) updater.install(l); else updater.check(l);
+            });
+        }
+
+        /** Opens Wave's GitHub page (source code, license) in the browser. */
+        @JavascriptInterface
+        public void openLink(String url) {
+            if (url == null || !url.startsWith("https://github.com/" + Updater.REPO)) return;
+            handler.post(() -> {
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                } catch (RuntimeException e) {
+                    Toast.makeText(MainActivity.this, url, Toast.LENGTH_LONG).show();
+                }
+            });
+        }
+
         /** Where the player-bar analyzer goes, or "off". */
         @JavascriptInterface
         public void miniSpectrum(String spot) {
@@ -758,6 +800,35 @@ public final class MainActivity extends Activity {
     }
 
     /** One analyzer on screen: where the page says it goes, and the cover it takes its colour from. */
+    // ---------- Updates ----------
+    private void showUpdateStatus(String state, String text) {
+        if (web == null) return;
+        try {
+            String json = new org.json.JSONObject().put("state", state).put("text", text).toString();
+            web.evaluateJavascript("window.__wave&&__wave.updateStatus(" + json + ")", null);
+        } catch (org.json.JSONException ignored) {
+            // Never happens with plain strings.
+        }
+    }
+
+    /** Once a day, the first time Wave opens: look for an update and offer it. */
+    private void autoCheckForUpdates() {
+        if (!prefs.getBoolean("autoUpdate", true)) return;
+        String today = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date());
+        if (today.equals(prefs.getString("updateCheckedOn", ""))) return;
+        prefs.edit().putString("updateCheckedOn", today).apply();
+        updater.check((state, text) -> {
+            showUpdateStatus(state, text);
+            if (!"available".equals(state) || isFinishing()) return;
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle(text)
+                    .setMessage("Install it now? Android will ask to confirm.")
+                    .setPositiveButton("Install", (d, w) -> updater.install(this::showUpdateStatus))
+                    .setNegativeButton("Later", null)
+                    .show();
+        });
+    }
+
     // ---------- Stream quality ----------
     // Under the cover in the full-screen player (below the analyzer's frequencies), and in the
     // notification: what Tidal is actually streaming.
@@ -998,6 +1069,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        updater.release();
         stopPlaybackService();
         WaveSession.detach(this);
         if (carReceiver != null) unregisterReceiver(carReceiver);

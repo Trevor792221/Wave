@@ -196,10 +196,11 @@
   // Fair shuffle on/off: hold Tidal's shuffle button. Remembered across restarts.
   var FAIR_OFF_KEY = 'wave.fairOff', fairOn = true;
   try { fairOn = localStorage.getItem(FAIR_OFF_KEY) !== '1'; } catch (e) {}
-  function setFair(on) {
+  function setFair(on, quiet) {
     fairOn = on;
     try { if (on) localStorage.removeItem(FAIR_OFF_KEY); else localStorage.setItem(FAIR_OFF_KEY, '1'); } catch (e) {}
-    note(on ? 'Fair shuffle on: no repeats until every song has played' : 'Fair shuffle off: Tidal\'s own shuffle');
+    syncSettings();
+    if (!quiet) note(on ? 'Fair shuffle on: no repeats until every song has played' : 'Fair shuffle off: Tidal\'s own shuffle');
   }
   W.setFair = setFair;
   function shuffleButton(t) {
@@ -781,6 +782,220 @@
   W.ringOff = function () { ringOn = false; cur = null; drawRing(); };
   // Turn the ring on without moving it; it appears as soon as the page has something to ring.
   W.ring = function () { ringOn = true; schedule(); };
+  // ---------- Wave's own tab in Tidal's settings ----------
+  // A "Wave" tab after General / Account / About (a copy of Tidal's own tab), with a page built
+  // like Tidal's settings: fair shuffle, updates from GitHub, and the license. Tidal's own tabs
+  // and pages are left as they are; Wave's page is shown in place of the current one while its
+  // tab is picked.
+  var REPO_URL = 'https://github.com/Trevor792221/Wave';
+  var wavePanel = null, wavePath = '', dimmed = [];
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text) e.textContent = text;
+    return e;
+  }
+  function settingsCss() {
+    if (document.getElementById('wave-settings-css')) return;
+    var st = el('style');
+    st.id = 'wave-settings-css';
+    st.textContent =
+      '.wv-sec{display:flex;flex-direction:column;margin-top:48px}' +
+      '.wv-h{margin:0 0 16px 16px;font-size:1.143em;font-weight:600;line-height:1.5}' +
+      '.wv-card{display:flex;flex-direction:column;border-radius:16px;border-bottom:1px solid #18181b;overflow:hidden}' +
+      '.wv-card+.wv-card{margin-top:16px}' +
+      '.wv-row{position:relative;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px;background:rgba(24,24,27,.6)}' +
+      '.wv-row+.wv-row::before{content:"";position:absolute;top:0;left:16px;right:16px;height:1px;background:rgba(255,255,255,.06)}' +
+      '.wv-txt{display:flex;flex-direction:column;gap:4px;min-width:0}' +
+      '.wv-t{font-weight:600;line-height:18px}' +
+      '.wv-s{font-size:.857em;font-weight:500;line-height:1.5;color:#afafb6}' +
+      '.wv-sw{position:relative;flex:none;width:42px;height:26px;border-radius:32px;border:0;padding:0;background:#303036;cursor:pointer;transition:background .2s}' +
+      '.wv-sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#000;transition:transform .2s}' +
+      '.wv-sw[aria-checked="true"]{background:#e4e4e7}' +
+      '.wv-sw[aria-checked="true"]::after{transform:translateX(16px)}' +
+      '.wv-btn{flex:none;border:0;border-radius:7px;padding:7px 12px;background:#18181b;color:#fff;font:inherit;font-size:.857em;font-weight:600;cursor:pointer}' +
+      '.wv-btn[disabled]{opacity:.5}';
+    (document.head || document.documentElement).appendChild(st);
+  }
+  function row(title, sub) {
+    var r = el('div', 'wv-row'), t = el('div', 'wv-txt');
+    t.appendChild(el('span', 'wv-t', title));
+    var s = el('span', 'wv-s', sub);
+    t.appendChild(s);
+    r.appendChild(t);
+    r.sub = s;
+    return r;
+  }
+  function toggle(on, change) {
+    var b = el('button', 'wv-sw');
+    b.type = 'button';
+    b.setAttribute('role', 'switch');
+    b.setAttribute('aria-checked', String(!!on));
+    b.onclick = function () {
+      var v = b.getAttribute('aria-checked') !== 'true';
+      b.setAttribute('aria-checked', String(v));
+      change(v);
+    };
+    return b;
+  }
+  function section(title) {
+    var s = el('div', 'wv-sec');
+    s.appendChild(el('h2', 'wv-h', title));
+    return s;
+  }
+  function card(rows) {
+    var c = el('div', 'wv-card');
+    rows.forEach(function (r) { c.appendChild(r); });
+    return c;
+  }
+  var ui = {};
+  function buildPanel() {
+    settingsCss();
+    var info = {};
+    try { info = JSON.parse(WaveApp.appInfo()); } catch (e) {}
+    var p = el('div');
+    p.setAttribute('data-test', 'settings-page-wave');
+
+    var s1 = section('Shuffle'), fair = row('Fair shuffle',
+      'With shuffle on, no song repeats until every song in the list has played. Holding the shuffle button switches it too.');
+    ui.fair = toggle(fairOn, function (v) { setFair(v, true); });
+    fair.appendChild(ui.fair);
+    s1.appendChild(card([fair]));
+    p.appendChild(s1);
+
+    var s2 = section('Updates');
+    var ver = row((info.name || 'Wave') + ' ' + (info.version || ''), 'Updates come from Wave\'s releases on GitHub.');
+    ui.status = ver.sub;
+    ui.check = el('button', 'wv-btn', 'Check now');
+    ui.check.type = 'button';
+    ui.check.onclick = function () { WaveApp.update(ui.check.getAttribute('data-install') ? 'install' : 'check'); };
+    ver.appendChild(ui.check);
+    var auto = row('Check automatically', 'Once a day, the first time you open Wave.');
+    auto.appendChild(toggle(info.auto !== false, function (v) { WaveApp.setAutoUpdate(v); }));
+    s2.appendChild(card([ver]));
+    s2.appendChild(card([auto]));
+    p.appendChild(s2);
+
+    var s3 = section('License');
+    var lic = row('GNU General Public License, version 3',
+      'Wave is free software: you can redistribute it and/or modify it under the terms of the GNU GPL version 3. ' +
+      'It comes with no warranty. Copyright (C) 2026 Trevor792221.');
+    var perm = row('Additional permission (section 7)',
+      'Combining Wave with Google Play services or other Google libraries under the Android SDK License is permitted.');
+    var src = row('Source code and full license', 'github.com/Trevor792221/Wave');
+    var open = el('button', 'wv-btn', 'Open');
+    open.type = 'button';
+    open.onclick = function () { WaveApp.openLink(REPO_URL); };
+    src.appendChild(open);
+    var tm = row('Not affiliated with TIDAL', 'Wave is not affiliated with or endorsed by TIDAL. TIDAL is a trademark of its respective owner.');
+    s3.appendChild(card([lic, perm, src]));
+    s3.appendChild(card([tm]));
+    p.appendChild(s3);
+    if (lastUpdate) W.updateStatus(lastUpdate);
+    return p;
+  }
+  var lastUpdate = null;
+  W.updateStatus = function (u) {
+    lastUpdate = u;
+    if (!ui.status || !wavePanel) return;
+    ui.status.textContent = u.text;
+    var available = u.state === 'available', busy = /checking|downloading|installing/.test(u.state);
+    ui.check.textContent = available ? 'Install' : 'Check now';
+    if (available) ui.check.setAttribute('data-install', '1'); else ui.check.removeAttribute('data-install');
+    ui.check.disabled = busy;
+  };
+  function syncSettings() {
+    if (ui.fair && wavePanel) ui.fair.setAttribute('aria-checked', String(fairOn));
+  }
+  function tabRow() {
+    var about = document.querySelector('[data-test="settings-tab--about"]');
+    return about && about.parentElement;
+  }
+  function stripActive(e) {
+    e.className = String(e.className).split(/\s+/).filter(function (c) { return !/_active_/.test(c); }).join(' ');
+  }
+  function showWave() {
+    var page = document.querySelector('[data-test="settings-page"]'), tabs = tabRow();
+    if (!page || !tabs) return;
+    if (!wavePanel) wavePanel = buildPanel();
+    wavePath = location.pathname;
+    // Tidal's picked tab looks unpicked, Wave's looks picked (by style only; Tidal's own classes stay).
+    var mine = tabs.querySelector('[data-test="settings-tab--wave"]'), lit = null, plain = null, i;
+    var all = tabs.querySelectorAll('a[data-test^="settings-tab--"]');
+    for (i = 0; i < all.length; i++) {
+      if (all[i] === mine) continue;
+      if (/_active_/.test(all[i].className)) lit = all[i]; else if (!plain) plain = all[i];
+    }
+    if (lit && plain && !dimmed.length) { // once: later passes would read the colours already changed
+      var litSpan = lit.querySelector('span'), plainSpan = plain.querySelector('span');
+      var on = getComputedStyle(lit).borderBottomColor, onText = litSpan && getComputedStyle(litSpan).color;
+      var offText = plainSpan && getComputedStyle(plainSpan).color;
+      lit.style.borderBottomColor = 'transparent';
+      if (litSpan) litSpan.style.color = offText;
+      dimmed = [lit, litSpan];
+      mine.style.borderBottomColor = on;
+      if (mine.querySelector('span')) mine.querySelector('span').style.color = onText;
+    }
+    hideTidalPages(page);
+    if (wavePanel.parentNode !== page) page.appendChild(wavePanel);
+  }
+  function hideTidalPages(page) {
+    var pages = page.querySelectorAll('[data-test^="settings-page-"]');
+    for (var i = 0; i < pages.length; i++) {
+      if (pages[i] === wavePanel || pages[i].getAttribute('data-wave-hidden')) continue;
+      pages[i].setAttribute('data-wave-hidden', '1');
+      pages[i].style.display = 'none';
+    }
+  }
+  function hideWave() {
+    if (!wavePanel) return;
+    if (wavePanel.parentNode) wavePanel.parentNode.removeChild(wavePanel);
+    wavePanel = null;
+    ui = {};
+    dimmed.forEach(function (e) { if (e) { e.style.borderBottomColor = ''; e.style.color = ''; } });
+    dimmed = [];
+    var mine = document.querySelector('[data-test="settings-tab--wave"]');
+    if (mine) {
+      mine.style.borderBottomColor = '';
+      if (mine.querySelector('span')) mine.querySelector('span').style.color = '';
+    }
+    var hidden = document.querySelectorAll('[data-wave-hidden]');
+    for (var i = 0; i < hidden.length; i++) { hidden[i].style.display = ''; hidden[i].removeAttribute('data-wave-hidden'); }
+  }
+  function settingsTick() {
+    var tabs = tabRow();
+    if (!tabs) { if (wavePanel) hideWave(); return; }
+    if (!tabs.querySelector('[data-test="settings-tab--wave"]')) {
+      var about = tabs.querySelector('[data-test="settings-tab--about"]'), tab = about.cloneNode(true);
+      tab.setAttribute('data-test', 'settings-tab--wave');
+      tab.removeAttribute('href');
+      tab.setAttribute('role', 'link');
+      tab.style.cursor = 'pointer';
+      tab.style.textDecoration = 'none'; // Tidal's tabs have no text underline (a link without href gets one)
+      tab.style.outline = 'none';
+      stripActive(tab);
+      var sp = tab.querySelector('span');
+      if (sp) { stripActive(sp); sp.textContent = 'Wave'; sp.style.textDecoration = 'none'; } else tab.textContent = 'Wave';
+      tabs.appendChild(tab);
+    }
+    if (wavePanel) {
+      if (location.pathname !== wavePath) hideWave(); // Back, or a link: Tidal's page again
+      else showWave(); // Tidal redrew its page: keep Wave's showing
+    }
+  }
+  setInterval(settingsTick, 500);
+  addEventListener('click', function (e) {
+    var t = e.target && e.target.closest && e.target.closest('[data-test^="settings-tab--"]');
+    if (!t) return;
+    if (t.getAttribute('data-test') === 'settings-tab--wave') {
+      e.preventDefault();
+      e.stopPropagation();
+      showWave();
+    } else if (wavePanel) {
+      hideWave(); // one of Tidal's tabs: its page comes back
+    }
+  }, true);
+
   // ---------- Tap a song to play it (Wave Mobile) ----------
   // A tap anywhere on a song in a list (number, cover, title, artist) plays it, instead of
   // opening the artist or album. Its other buttons (the ... menu) work as usual.
