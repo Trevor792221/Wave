@@ -1,0 +1,42 @@
+name: Publish test builds
+
+# Adds every APK in beta/ and probes/ on this branch to the "beta" and "probes" pre-releases,
+# with the notes tables as the pages' descriptions.
+on:
+  push:
+    branches: [test-builds]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: beta
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish
+        run: |
+          page() {
+            tag="$1"; title="$2"; intro="$3"; dir="$4"
+            if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target main --prerelease --latest=false \
+                --title "$title" --notes "$intro"
+            fi
+            { echo "$intro"; echo; echo "### Earlier builds (from the \`test-builds\` branch)"; echo; cat "$dir/NOTES.md"; } > notes.md
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
+            gh release upload "$tag" "$dir"/*.apk --repo "$GITHUB_REPOSITORY" --clobber
+            ls "$dir"/*.apk | sed "s|^|$tag: |" >> "$GITHUB_STEP_SUMMARY"
+          }
+          page beta "Wave Beta (test builds)" \
+            "Test builds of Wave for TV (\`wave-beta-<version>.apk\`) and Wave Mobile (\`wave-mobile-beta-<version>.apk\`) built from \`main\`: called Wave Beta, they install alongside the official apps, with their own sign-in, and don't update themselves. Below them, every earlier test build, numbered in order." \
+            beta
+          page probes "Wave Probe" \
+            "Wave Probe (\`wave-probe-<version>.apk\`): Tidal's web player with a log of the kinds of request it makes and, on request, how Tidal's page and player are built (structure only: no titles, names or account details). Source: probes/wave-probe on main. Below, every probe version, numbered in order." \
+            probes
