@@ -58,6 +58,7 @@
 | `56-wave-mobile-beta-1.0.9-no-click.apk` | Nov 9 | 1.0.9: no click when playback stops (the analyzer's capture is released a few seconds later) |
 | `57-wave-mobile-beta-1.0.9-soft-pause.apk` | Nov 9 | 1.0.9: pause fades out (and waits for the output) before stopping, play fades in — no click |
 | `58-wave-mobile-beta-1.0.9-analyzer-as-1.0.8.apk` | Nov 9 | 1.0.9 with soft pause; the analyzer works as in 1.0.8 again (the delayed release made it freeze on pause) |
+| `59-wave-mobile-beta-1.0.9-fade-sliders.apk` | Nov 9 | 1.0.9 with fade-out and fade-in sliders (ms) in the Wave tab, for trying fade lengths |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
