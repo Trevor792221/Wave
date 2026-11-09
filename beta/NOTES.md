@@ -53,6 +53,7 @@
 | `51-wave-mobile-1.0.7.apk` | Nov 9 | Wave tab in Tidal's settings (rebuilt from its commit) |
 | `52-wave-2.0.4-test-2.apk` | Nov 9 | TV 2.0.4 with the mobile fixes and features (as released) |
 | `53-wave-mobile-beta-1.0.8.apk` | Nov 9 | First Wave Beta: Android Auto heart, played-this-round list (as released) |
+| `54-wave-mobile-beta-1.0.9.apk` | Nov 9 | Separate audio quality on Wi-Fi and on mobile data (General tab) |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
