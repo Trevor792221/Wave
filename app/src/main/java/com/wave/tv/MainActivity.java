@@ -155,7 +155,8 @@ public final class MainActivity extends Activity {
                 applyViewport();
                 v.evaluateJavascript(bridgeJs, null); // no-op if already installed
                 if (ringMode) v.evaluateJavascript("window.__wave&&__wave.ring()", null);
-                if (!BuildConfig.TV) v.evaluateJavascript("window.__wave&&(__wave.enableTapToPlay(),__wave.enableSwipes())", null);
+                v.evaluateJavascript("window.__wave&&__wave.enableTapToPlay()", null); // TV and phone
+                if (!BuildConfig.TV) v.evaluateJavascript("window.__wave&&(__wave.phoneMode(),__wave.enableSwipes())", null);
             }
         });
         web.setWebChromeClient(new WebChromeClient() {

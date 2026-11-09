@@ -31,6 +31,8 @@ Wave has two ways to get around, switched with **Menu**:
 
 Fast-forward and rewind buttons act as Next and Previous. In a scrolling list the ring scrolls the list before moving on, and it follows the page when Tidal opens a new one.
 
+Clicking anywhere on a song in a list (its number, cover, title or artist) plays it; the **...** menu works as usual.
+
 On the TV, when you pick a song (a track, Play or Shuffle on a playlist, or a song in the queue), the full-screen player opens. Whenever the player opens, the ring goes to its play/pause button.
 
 On the on-screen keyboard, the Search / Go / Done key just closes the keyboard (Tidal's search updates as you type). The page's full-screen mode is turned off: Wave is already full screen.
@@ -38,8 +40,6 @@ On the on-screen keyboard, the Search / Go / Done key just closes the keyboard (
 ## Wave Mobile
 
 Wave Mobile is the same app for touch phones: everything below except the remote controls. It keeps the phone's status bar and navigation buttons (with gesture navigation the page reaches the bottom edge), and the full-screen player opens only when you tap the player bar.
-
-In a list of songs, tapping anywhere on a song (its number, cover, title or artist) plays it; the **...** menu works as usual.
 
 In the full-screen player:
 

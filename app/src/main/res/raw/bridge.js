@@ -999,9 +999,11 @@
   // ---------- Tap a song to play it (Wave Mobile) ----------
   // A tap anywhere on a song in a list (number, cover, title, artist) plays it, instead of
   // opening the artist or album. Its other buttons (the ... menu) work as usual.
+  // Phones: no pause-before-switching (that's for TVs) and no automatic full-screen player.
+  W.phoneMode = function () { W.phone = true; };
   W.enableTapToPlay = function () {
-    if (W.phone) return;
-    W.phone = true;
+    if (W.tapToPlay) return;
+    W.tapToPlay = true;
     var playing = false;
     addEventListener('click', function (e) {
       if (playing || !e.isTrusted) return;
