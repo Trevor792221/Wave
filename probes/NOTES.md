@@ -6,3 +6,4 @@
 | `04-wave-probe-3.1.apk` | Nov 9 | Shares the log as a file (rebuilt) |
 | `05-wave-probe-4.apk` | Nov 9 | Records what Tidal's heart button sends (rebuilt) |
 | `06-wave-probe-4.1.apk` | Nov 9 | Records the heart's command in full |
+| `07-wave-probe-5.apk` | Nov 9 | Records Tidal's settings commands (audio quality) in full |
