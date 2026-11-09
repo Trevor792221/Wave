@@ -45,9 +45,9 @@
   function report() {
     fairAttach();
     if (!window.WaveApp) return;
-    var e = media(), n = { title: '', artist: '', art: '', dur: 0, pos: 0 };
+    var e = media(), n = { title: '', artist: '', art: '', dur: 0, pos: 0, quality: '' };
     try { n = nowPlaying(); } catch (x) {} // play/pause is reported even if the song details can't be read
-    WaveApp.state(!!(e && !e.paused && !e.ended), n.title, n.artist, n.art, n.dur, n.pos);
+    WaveApp.state(!!(e && !e.paused && !e.ended), n.title, n.artist, n.art, n.dur, n.pos, n.quality || '');
   }
   function txt(el) { return el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''; }
   // What's playing, for Android's media controls and notification. Android's WebView has no
@@ -85,7 +85,19 @@
       pos = e.currentTime || 0;
     }
     if (dur) pos = Math.min(pos, dur);
-    return { title: title, artist: artist, art: art, dur: Math.round(dur * 1000), pos: Math.round(pos * 1000) };
+    return { title: title, artist: artist, art: art, dur: Math.round(dur * 1000), pos: Math.round(pos * 1000),
+             quality: streamQuality(pc && pc.playbackContext) };
+  }
+  // What Tidal is actually streaming, from its player state: "FLAC · 24-bit / 96 kHz · 2304 kbps".
+  function streamQuality(c) {
+    if (!c) return '';
+    var out = [], codec = String(c.codec || '').trim().toUpperCase();
+    if (/^(AACL|MP4A|HEAAC)/.test(codec)) codec = 'AAC';
+    if (codec) out.push(codec);
+    if (c.bitDepth && c.sampleRate) out.push(c.bitDepth + '-bit / ' + Math.round(c.sampleRate / 100) / 10 + ' kHz');
+    else if (c.sampleRate) out.push(Math.round(c.sampleRate / 100) / 10 + ' kHz');
+    if (c.bandwidth) out.push(Math.round(c.bandwidth / 1000) + ' kbps');
+    return out.join(' \u00b7 ');
   }
   ['play', 'playing', 'pause', 'ended', 'emptied'].forEach(function (t) {
     document.addEventListener(t, report, true);
@@ -169,13 +181,47 @@
   // one is still playing: switching songs mid-play left Tidal's player stuck at 0:00 with the
   // loading ring. So the playing song is paused first and the switch happens 0.4 s later.
   // Returns false (nothing to wait for) when nothing is playing.
+  // Phones don't need it. A newer pick made while one is waiting replaces it (the last one wins).
+  var switchTimer = 0;
   function switchSongs(go) {
+    if (W.phone) return false;
     var els = document.querySelectorAll('video,audio'), paused = false;
     for (var i = 0; i < els.length; i++) if (!els[i].paused) { els[i].pause(); paused = true; }
+    if (switchTimer) { clearTimeout(switchTimer); paused = true; } // an earlier pick still waiting: drop it
     if (!paused) return false;
-    setTimeout(go, 400);
+    switchTimer = setTimeout(function () { switchTimer = 0; go(); }, 400);
     return true;
   }
+
+  // Fair shuffle on/off: hold Tidal's shuffle button. Remembered across restarts.
+  var FAIR_OFF_KEY = 'wave.fairOff', fairOn = true;
+  try { fairOn = localStorage.getItem(FAIR_OFF_KEY) !== '1'; } catch (e) {}
+  function setFair(on) {
+    fairOn = on;
+    try { if (on) localStorage.removeItem(FAIR_OFF_KEY); else localStorage.setItem(FAIR_OFF_KEY, '1'); } catch (e) {}
+    note(on ? 'Fair shuffle on: no repeats until every song has played' : 'Fair shuffle off: Tidal\'s own shuffle');
+  }
+  W.setFair = setFair;
+  function shuffleButton(t) {
+    var b = t && t.closest && t.closest('button,[role="button"]');
+    return b && /shuffle/i.test(label(b)) ? b : null;
+  }
+  (function () {
+    var timer = 0, held = null, fired = false;
+    function cancel() { clearTimeout(timer); timer = 0; }
+    addEventListener('touchstart', function (e) {
+      held = shuffleButton(e.target);
+      fired = false;
+      cancel();
+      if (held) timer = setTimeout(function () { fired = true; setFair(!fairOn); }, 600);
+    }, true);
+    ['touchend', 'touchcancel', 'touchmove'].forEach(function (t) { addEventListener(t, cancel, true); });
+    function swallow(e) {
+      if (fired && shuffleButton(e.target) === held) { e.preventDefault(); e.stopPropagation(); if (e.type === 'click') fired = false; }
+    }
+    addEventListener('click', swallow, true);       // the hold doesn't also flip Tidal's shuffle
+    addEventListener('contextmenu', function (e) { if (shuffleButton(e.target)) e.preventDefault(); }, true);
+  })();
 
   function fairQueue() {
     try { var q = fairStore.getState().playQueue; return q && Array.isArray(q.elements) ? q : null; } catch (e) { return null; }
@@ -205,9 +251,11 @@
     var movedOn = prev && prev.src === src && (idx === prev.idx + 1 || (idx === 0 && prev.idx === n - 1));
     var started = now - shuffleStartAt < 3000;
     if (started) shuffleStartAt = 0;
-    var picked = now - userPickAt < 1500;
+    // A song you pick counts as yours if it starts within 5 s (slow connections included).
+    var picked = now - userPickAt < 5000;
     if (picked) userPickAt = 0; // a pick only counts for the song it started
-    if (picked || started) openPlayerWhenPlaying(); // you picked something: show the player
+    if ((picked || started) && !W.phone) openPlayerWhenPlaying(); // you picked something: show the player (TV)
+    if (!fairOn) return; // fair shuffle switched off: Tidal's own shuffle
     var heard = {}, i;
     for (i = 0; i < mem.h.length; i++) heard[mem.h[i]] = 1;
 
@@ -259,6 +307,17 @@
     }
     return seen >= 2;
   }
+  // Something else (a menu, a dialog) is on top of part of r: the analyzer there hides.
+  function covered(r, box) {
+    var pts = [[0.5, 0.5], [0.1, 0.2], [0.9, 0.2], [0.1, 0.8], [0.9, 0.8]];
+    for (var i = 0; i < pts.length; i++) {
+      var x = r.left + r.width * pts[i][0], y = r.top + r.height * pts[i][1];
+      if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) continue;
+      var el = document.elementFromPoint(x, y);
+      if (el && !box.contains(el)) return true;
+    }
+    return false;
+  }
   function spotRect() {
     if (!(fairStore && playerOpen()) && !playerTabsShown()) return 'off';
     var vw = innerWidth, vh = innerHeight, cover = null, best = 0, i;
@@ -277,6 +336,8 @@
     if (!cover || best < vw * vh * 0.04) return 'off';
     var h = Math.max(40, Math.min(160, cover.height * 0.22));
     var top = cover.bottom - h;
+    var box = (coverEl.closest && coverEl.closest('[data-test="new-now-playing"]')) || coverEl.parentElement || coverEl;
+    if (covered({ left: cover.left, top: top, width: cover.width, height: h }, box)) return 'off';
     var url = coverEl && coverEl.tagName === 'IMG' ? (coverEl.currentSrc || coverEl.src || '') : '';
     return [Math.round(cover.left), Math.round(top), Math.round(cover.width), Math.round(h), vw].join(',') + '|' + url;
   }
@@ -291,6 +352,7 @@
     var img = footer.querySelector('[data-test="current-media-imagery"] img') || footer.querySelector('img');
     var url = img ? (img.currentSrc || img.src || '') : '';
     var r = wideBarSpot(footer, fr) || compactBarSpot(footer, img);
+    if (r && covered({ left: r[0], top: r[1], width: r[2], height: r[3] }, footer)) return 'off';
     return r ? r.map(Math.round).concat(innerWidth).join(',') + '|' + url : 'off';
   }
   // The desktop-style player bar (TV): between the time readout and the queue/volume buttons.
@@ -361,6 +423,8 @@
     if (s !== lastSpot && window.WaveApp && WaveApp.spectrum) { lastSpot = s; WaveApp.spectrum(s); }
   }
   setInterval(spot, 1000); // follows layout changes (resize, animations); cheap while closed
+  // A tap can open or close a menu over an analyzer: look again as it slides in or out.
+  addEventListener('click', function () { setTimeout(spot, 50); setTimeout(spot, 350); }, true);
   addEventListener('resize', function () { setTimeout(spot, 100); });
   W.spot = function () { lastSpot = lastMini = ''; spot(); }; // the app asks again (e.g. when it comes back)
 
@@ -717,6 +781,30 @@
   W.ringOff = function () { ringOn = false; cur = null; drawRing(); };
   // Turn the ring on without moving it; it appears as soon as the page has something to ring.
   W.ring = function () { ringOn = true; schedule(); };
+  // ---------- Tap a song to play it (Wave Mobile) ----------
+  // A tap anywhere on a song in a list (number, cover, title, artist) plays it, instead of
+  // opening the artist or album. Its other buttons (the ... menu) work as usual.
+  W.enableTapToPlay = function () {
+    if (W.phone) return;
+    W.phone = true;
+    var playing = false;
+    addEventListener('click', function (e) {
+      if (playing || !e.isTrusted) return;
+      var t = e.target, row = t && t.closest && t.closest('[data-test="tracklist-row"]');
+      if (!row) return;
+      var ctl = t.closest('button,[role="button"],input');
+      if (ctl && row.contains(ctl) && ctl.getAttribute('data-test') !== 'play-button') return; // its own buttons
+      var play = row.querySelector('[data-test="play-button"]');
+      e.preventDefault();
+      e.stopPropagation();
+      playing = true;
+      try {
+        if (play) play.click();
+        else row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+      } finally { playing = false; }
+    }, true);
+  };
+
   // ---------- Swipe gestures (Wave Mobile) ----------
   // In the full-screen player: swipe left for the next song, right for the previous one (the cover
   // follows your finger), and down from the upper part of the player to close it. Swipes that

@@ -31,13 +31,17 @@ Wave has two ways to get around, switched with **Menu**:
 
 Fast-forward and rewind buttons act as Next and Previous. In a scrolling list the ring scrolls the list before moving on, and it follows the page when Tidal opens a new one.
 
-When you pick a song (a track, Play or Shuffle on a playlist, or a song in the queue), the full-screen player opens. Whenever the player opens, the ring goes to its play/pause button.
+On the TV, when you pick a song (a track, Play or Shuffle on a playlist, or a song in the queue), the full-screen player opens. Whenever the player opens, the ring goes to its play/pause button.
 
 On the on-screen keyboard, the Search / Go / Done key just closes the keyboard (Tidal's search updates as you type). The page's full-screen mode is turned off: Wave is already full screen.
 
 ## Wave Mobile
 
-Wave Mobile is the same app for touch phones: everything below except the remote controls. In the full-screen player:
+Wave Mobile is the same app for touch phones: everything below except the remote controls. It keeps the phone's status bar and navigation buttons (with gesture navigation the page reaches the bottom edge), and the full-screen player opens only when you tap the player bar.
+
+In a list of songs, tapping anywhere on a song (its number, cover, title or artist) plays it; the **...** menu works as usual.
+
+In the full-screen player:
 
 - **Swipe left** for the next song, **swipe right** for the previous one. The cover follows your finger.
 - **Swipe down** from the upper part of the player to close it.
@@ -60,6 +64,12 @@ Two analyzers in the colour of the song's cover (its strongest colour):
 - **Over the album art** in the full-screen player: 30% opaque bars standing on the cover's bottom edge, with the frequencies (from the lowest one Android measures, about 47 Hz, up to 20 kHz) just under the cover.
 - **In the player bar**, between the time and the buttons on the right: solid bars, while music plays and the full-screen player is closed.
 
+An analyzer hides while a menu or dialog covers it.
+
+## Stream quality
+
+Under the cover in the full-screen player, and in the notification, Wave shows what Tidal is actually streaming, from Tidal's own player: format, bit depth, sample rate and bit rate (for example `FLAC · 24-bit / 96 kHz · 2304 kbps`).
+
 Tidal's streams are DRM-protected, so the page can't read them; Android's Visualizer measures the TV's sound output instead. Android asks for the microphone permission for this the first time; nothing is recorded.
 
 When the sound goes where Android can't measure it (Android Auto, for one), the bars hide instead of standing still. Android Auto draws its own player, so the analyzers aren't shown on the car's screen.
@@ -72,6 +82,7 @@ With shuffle on, a playlist (or album, mix...) doesn't repeat a song until every
 - A round ends when its last song plays; the next time, every song is new again.
 - Songs you pick yourself, Previous, and shuffle off are left alone.
 - Related music Tidal plays after a playlist ends isn't counted.
+- **Hold Tidal's shuffle button** to turn fair shuffle off (Tidal's own shuffle) or back on. Wave remembers the choice.
 
 ## Background playback
 

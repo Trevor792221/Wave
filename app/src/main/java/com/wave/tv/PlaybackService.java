@@ -101,6 +101,7 @@ public final class PlaybackService extends Service {
         b.setSmallIcon(R.drawable.ic_fg)
                 .setContentTitle(title.isEmpty() ? "Wave" : title)
                 .setContentText(artist)
+                .setSubText(WaveSession.quality().isEmpty() ? null : WaveSession.quality())
                 .setLargeIcon(WaveSession.art())
                 .setContentIntent(open)
                 .setVisibility(Notification.VISIBILITY_PUBLIC)

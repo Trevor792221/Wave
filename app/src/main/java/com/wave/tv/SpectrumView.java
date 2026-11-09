@@ -283,7 +283,8 @@ final class SpectrumView extends View {
         lastFrame = now;
 
         if (deaf()) {
-            if (running.contains(this)) postInvalidateOnAnimation();
+            // Nothing to draw: look again 4 times a second instead of every frame.
+            if (running.contains(this)) postInvalidateDelayed(250);
             return;
         }
         float w = getWidth(), h = getHeight();

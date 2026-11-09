@@ -18,7 +18,7 @@ final class WaveSession {
     private static MediaSession session;
     private static WeakReference<MainActivity> player = new WeakReference<>(null);
     private static boolean playing;
-    private static String title = "", artist = "";
+    private static String title = "", artist = "", quality = "";
     private static android.graphics.Bitmap art;
     /** Where the song was (ms) at a moment (elapsedRealtime); Android moves the progress bar on from there. */
     private static long position = PlaybackState.PLAYBACK_POSITION_UNKNOWN, positionAt;
@@ -87,6 +87,11 @@ final class WaveSession {
     }
 
     static String title() { return title == null ? "" : title; }
+
+    /** What Tidal streams ("FLAC · 16-bit / 44.1 kHz · 905 kbps"), or "". */
+    static String quality() { return quality; }
+
+    static void setQuality(String q) { quality = q == null ? "" : q; }
 
     static String artist() { return artist == null ? "" : artist; }
 

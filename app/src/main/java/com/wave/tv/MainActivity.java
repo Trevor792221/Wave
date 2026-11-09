@@ -90,6 +90,7 @@ public final class MainActivity extends Activity {
         root.addView(web, new FrameLayout.LayoutParams(-1, -1));
         root.addView(cursor, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
+        if (!BuildConfig.TV) keepClearOfSystemBars();
 
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
@@ -151,7 +152,7 @@ public final class MainActivity extends Activity {
                 applyViewport();
                 v.evaluateJavascript(bridgeJs, null); // no-op if already installed
                 if (ringMode) v.evaluateJavascript("window.__wave&&__wave.ring()", null);
-                if (!BuildConfig.TV) v.evaluateJavascript("window.__wave&&__wave.enableSwipes()", null);
+                if (!BuildConfig.TV) v.evaluateJavascript("window.__wave&&(__wave.enableTapToPlay(),__wave.enableSwipes())", null);
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
@@ -517,6 +518,44 @@ public final class MainActivity extends Activity {
         }).start();
     }
 
+    /**
+     * Wave Mobile shows the status bar and navigation buttons; the page sits between them (and
+     * above the keyboard). Android 15 draws apps under the bars unless they make room themselves.
+     */
+    @SuppressWarnings("deprecation")
+    private void keepClearOfSystemBars() {
+        root.setBackgroundColor(0xFF000000); // behind the bars
+        root.setOnApplyWindowInsetsListener((v, in) -> {
+            int l, t, r, b;
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets bars = in.getInsets(android.view.WindowInsets.Type.systemBars()
+                        | android.view.WindowInsets.Type.displayCutout());
+                android.graphics.Insets ime = in.getInsets(android.view.WindowInsets.Type.ime());
+                // With gesture navigation only the thin handle is there: the page goes under it
+                // (it's see-through). Room is made only for real navigation buttons.
+                android.graphics.Insets buttons = in.getInsets(android.view.WindowInsets.Type.tappableElement());
+                l = bars.left; t = bars.top; r = bars.right; b = Math.max(buttons.bottom, ime.bottom);
+            } else {
+                l = in.getSystemWindowInsetLeft(); t = in.getSystemWindowInsetTop();
+                r = in.getSystemWindowInsetRight(); b = in.getSystemWindowInsetBottom();
+                if (Build.VERSION.SDK_INT >= 29 && in.getTappableElementInsets().bottom == 0
+                        && in.getStableInsetBottom() >= b) b = 0; // gestures, keyboard closed
+            }
+            v.setPadding(l, t, r, b);
+            // Room is made here, so the page isn't told about the bars too: otherwise Tidal adds
+            // its own empty strip of the same height at the top (over its player's top row).
+            return Build.VERSION.SDK_INT >= 30 ? android.view.WindowInsets.CONSUMED : in.consumeSystemWindowInsets();
+        });
+        if (Build.VERSION.SDK_INT < 35) getWindow().getDecorView().setSystemUiVisibility(
+                android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE | android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
+        if (Build.VERSION.SDK_INT >= 21) {
+            getWindow().setStatusBarColor(0xFF000000);
+            getWindow().setNavigationBarColor(0); // see-through: the page or the black room for buttons shows
+            if (Build.VERSION.SDK_INT >= 29) getWindow().setNavigationBarContrastEnforced(false);
+        }
+    }
+
     /** Runs a player command inside the page (works in the background too). */
     void command(String c) {
         // Wake the page fully, as if it were on screen, so Tidal can start the song even after a
@@ -639,9 +678,12 @@ public final class MainActivity extends Activity {
     /** JS -> Java. Called on a WebView thread, so hop to the main thread. */
     private final class Bridge {
         @JavascriptInterface
-        public void state(boolean nowPlaying, String t, String a, String art, double durMs, double posMs) {
-            handler.post(() -> onPageState(nowPlaying, t == null ? "" : t, a == null ? "" : a, art == null ? "" : art,
-                    Math.max(0, (long) durMs), Math.max(0, (long) posMs)));
+        public void state(boolean nowPlaying, String t, String a, String art, double durMs, double posMs, String q) {
+            handler.post(() -> {
+                setQuality(q == null ? "" : q);
+                onPageState(nowPlaying, t == null ? "" : t, a == null ? "" : a, art == null ? "" : art,
+                        Math.max(0, (long) durMs), Math.max(0, (long) posMs));
+            });
         }
 
         /** Where the cover analyzer goes while Tidal's full-screen player is open, or "off". */
@@ -650,6 +692,7 @@ public final class MainActivity extends Activity {
             handler.post(() -> {
                 coverAnalyzer.spot = spot == null ? "off" : spot;
                 coverAnalyzer.update();
+                placeQuality();
             });
         }
 
@@ -715,6 +758,50 @@ public final class MainActivity extends Activity {
     }
 
     /** One analyzer on screen: where the page says it goes, and the cover it takes its colour from. */
+    // ---------- Stream quality ----------
+    // Under the cover in the full-screen player (below the analyzer's frequencies), and in the
+    // notification: what Tidal is actually streaming.
+    private android.widget.TextView qualityView;
+
+    private void setQuality(String q) {
+        if (q.equals(WaveSession.quality())) return;
+        WaveSession.setQuality(q);
+        placeQuality();
+        if (serviceOn) PlaybackService.refresh(this);
+    }
+
+    private void placeQuality() {
+        String q = WaveSession.quality();
+        String[] p = coverAnalyzer.spot.split("\\|", 2)[0].split(",");
+        if (!visible || q.isEmpty() || p.length != 5) {
+            if (qualityView != null) qualityView.setVisibility(View.GONE);
+            return;
+        }
+        if (qualityView == null) {
+            qualityView = new android.widget.TextView(this);
+            qualityView.setTextColor(0xB3FFFFFF);
+            qualityView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12);
+            qualityView.setGravity(android.view.Gravity.CENTER);
+            qualityView.setSingleLine(true);
+            root.addView(qualityView, 1);
+        }
+        try {
+            float scale = web.getWidth() / Float.parseFloat(p[4]);
+            int l = Math.round(Float.parseFloat(p[0]) * scale), w = Math.round(Float.parseFloat(p[2]) * scale);
+            int bottom = Math.round((Float.parseFloat(p[1]) + Float.parseFloat(p[3])) * scale);
+            // Below the frequency labels (12sp + a little) whether or not the analyzer is showing.
+            int labels = Math.round(10 * getResources().getDisplayMetrics().scaledDensity + 4 * density);
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(w, -2);
+            lp.leftMargin = l;
+            lp.topMargin = bottom + labels + Math.round(4 * density);
+            qualityView.setLayoutParams(lp);
+        } catch (NumberFormatException e) {
+            return;
+        }
+        qualityView.setText(q);
+        qualityView.setVisibility(View.VISIBLE);
+    }
+
     private final class Analyzer {
         final int bars;
         final boolean labels, onlyWhilePlaying;
