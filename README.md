@@ -123,6 +123,19 @@ Each app has its own `versionName` and `versionCode`, in its flavor in `app/buil
 
 Local builds without the release key are test builds: they're called **Wave Beta**, have their own app id (`com.wave.tv.beta`, `com.wave.mobile.beta`), are signed with the debug key and named `wave-beta-<version>.apk` / `wave-mobile-beta-<version>.apk`. They install alongside the official app (with their own sign-in) and don't update themselves.
 
+## Beta
+
+Test builds are on the [**Beta** page](https://github.com/Trevor792221/Wave/releases/tag/beta): `wave-beta-<version>.apk` (TV) and `wave-mobile-beta-<version>.apk` (phone), one per version. They're called **Wave Beta** and have their own app id, so they install alongside the official apps (with their own Tidal sign-in), and they don't update themselves. The **Beta and probes** workflow adds them when the app changes on `main`.
+
+## Probes
+
+[**Wave Probe**](https://github.com/Trevor792221/Wave/releases/tag/probes) (`wave-probe-<version>.apk`, source in [`probes/wave-probe`](probes/wave-probe)) is Tidal's web player at phone width with two buttons:
+
+- **Snapshot** records how the page and Tidal's player are built: the player's state and recent commands (their names and the *shape* of what they carry), and the page's buttons, tabs and settings with their sizes and styles. Only short on-screen labels are kept: no song titles, names, ids of your lists or account details.
+- **Share log** shares the snapshots and a list of the kinds of request the page makes (host and path, ids masked, no query strings, headers or bodies) as a text file.
+
+It's how Wave's commands for Tidal's player, the settings tab and the Android Auto heart were worked out.
+
 ## License
 
 Copyright (C) 2026 Trevor792221

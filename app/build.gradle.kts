@@ -1,10 +1,10 @@
 plugins { id("com.android.application") }
 
-// Release signing comes from environment variables (set by the release workflow from repo
-// secrets). Without them it's a test build: "Wave Beta", its own app id (….beta), signed with
-// the local debug key, so it installs alongside an official release.
+// Release signing comes from environment variables (set by the workflows from repo secrets).
+// Without them, or with WAVE_BETA=1 (the beta workflow), it's a test build: "Wave Beta", its own
+// app id (….beta), so it installs alongside an official release.
 val releaseKeystore: String? = System.getenv("WAVE_KEYSTORE_FILE")
-val beta = releaseKeystore == null
+val beta = releaseKeystore == null || System.getenv("WAVE_BETA") == "1"
 
 android {
     namespace = "com.wave.tv"

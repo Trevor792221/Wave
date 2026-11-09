@@ -1,0 +1,92 @@
+name: Beta and probes
+
+# Test builds and the probe app, as downloads on two pre-releases (never marked "latest", so the
+# apps' own update check ignores them):
+#   beta    Wave Beta for TV and phones: wave-beta-<version>.apk, wave-mobile-beta-<version>.apk.
+#           Test builds have their own app id, so they install alongside the official apps.
+#   probes  Wave Probe: wave-probe-<version>.apk, for working out how Tidal's page works.
+# Each build is added under its version; older ones stay. Signed with the release key, so a
+# newer test build installs over an older one. Runs when the app or the probe changes on main,
+# or by hand (Actions tab).
+on:
+  push:
+    branches: [main]
+    paths: ["app/**", "probes/**", ".github/workflows/beta.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: beta
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Decode signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.WAVE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "Secret WAVE_KEYSTORE_BASE64 is not set." >&2
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/wave-release.p12"
+          echo "WAVE_KEYSTORE_FILE=$RUNNER_TEMP/wave-release.p12" >> "$GITHUB_ENV"
+
+      - name: Build Wave Beta and Wave Probe
+        env:
+          WAVE_BETA: "1"
+          WAVE_KEYSTORE_PASSWORD: ${{ secrets.WAVE_KEYSTORE_PASSWORD }}
+          WAVE_KEY_ALIAS: ${{ secrets.WAVE_KEY_ALIAS }}
+          WAVE_KEY_PASSWORD: ${{ secrets.WAVE_KEY_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon assembleTvRelease assembleMobileRelease
+          ./gradlew --no-daemon -p probes/wave-probe assembleRelease
+
+      - name: Check the APKs
+        run: |
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)/apksigner"
+          aapt="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)/aapt"
+          for apk in app/build/outputs/apk/*/release/*-beta-*.apk probes/wave-probe/app/build/outputs/apk/release/wave-probe-*.apk; do
+            test -f "$apk"
+            if "$apksigner" verify --print-certs "$apk" | grep -q "CN=Android Debug"; then
+              echo "$apk is signed with a debug key." >&2
+              exit 1
+            fi
+            "$aapt" dump badging "$apk" | grep -E "^package|application-label:"
+          done
+
+      - name: Publish
+        run: |
+          publish() {
+            tag="$1"; title="$2"; notes="$3"; shift 3
+            if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target main --prerelease --latest=false \
+                --title "$title" --notes "$notes"
+            fi
+            gh release upload "$tag" "$@" --repo "$GITHUB_REPOSITORY" --clobber
+            for f in "$@"; do echo "$tag: $(basename "$f")" >> "$GITHUB_STEP_SUMMARY"; done
+          }
+          publish beta "Wave Beta (test builds)" \
+            "Test builds of Wave for TV (\`wave-beta-<version>.apk\`) and Wave Mobile (\`wave-mobile-beta-<version>.apk\`). They're called Wave Beta and install alongside the official apps, with their own sign-in. They don't update themselves." \
+            app/build/outputs/apk/tv/release/wave-beta-*.apk app/build/outputs/apk/mobile/release/wave-mobile-beta-*.apk
+          publish probes "Wave Probe" \
+            "Wave Probe (\`wave-probe-<version>.apk\`): Tidal's web player with a log of the kinds of request it makes and, on request, how Tidal's page and player are built (structure only: no titles, names or account details). Share the log to help work out how Wave should talk to Tidal's page. Source: probes/wave-probe." \
+            probes/wave-probe/app/build/outputs/apk/release/wave-probe-*.apk
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/wave-release.p12"
