@@ -349,11 +349,15 @@ public final class MainActivity extends Activity {
     }
 
     private void goBack() {
-        if (web.canGoBack()) {
-            web.goBack();
-        } else {
-            finish();
-        }
+        // The full-screen player isn't a page of its own: back closes it first (the page says
+        // whether it did). Then Tidal's previous page; on the first page, Wave Mobile goes to the
+        // background so the music keeps playing (the TV app closes, as before).
+        web.evaluateJavascript("!!(window.__wave&&__wave.back&&__wave.back())", v -> {
+            if ("true".equals(v)) return;
+            if (web.canGoBack()) web.goBack();
+            else if (!BuildConfig.TV) moveTaskToBack(true);
+            else finish();
+        });
     }
 
     private void movePointer(int code, int repeat) {
@@ -561,6 +565,37 @@ public final class MainActivity extends Activity {
 
     private void tellNetwork() {
         if (web != null) web.evaluateJavascript("window.__wave&&__wave.setNetwork('" + network + "')", null);
+    }
+
+    // ---------- Bluetooth output (for the meters' BT note) ----------
+    // On Bluetooth the phone sends the sound at full level and the speaker sets the volume
+    // (absolute volume), so the meters don't follow the phone's volume there: they say "BT".
+    private long btCheckedAt;
+    private boolean btOut;
+
+    @SuppressWarnings("deprecation")
+    private boolean bluetoothOut() {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - btCheckedAt < 1000) return btOut;
+        btCheckedAt = now;
+        boolean bt = false;
+        try {
+            android.media.AudioManager am = getSystemService(android.media.AudioManager.class);
+            if (am != null && Build.VERSION.SDK_INT >= 33) {
+                android.media.AudioAttributes media = new android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA).build();
+                for (android.media.AudioDeviceInfo d : am.getAudioDevicesForAttributes(media)) {
+                    int t = d.getType();
+                    if (t == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || t == 26 || t == 27 || t == 30) bt = true; // A2DP, LE Audio headset, speaker, broadcast
+                }
+            } else if (am != null) {
+                bt = am.isBluetoothA2dpOn();
+            }
+        } catch (RuntimeException ignored) {
+            // Unknown: no note.
+        }
+        btOut = bt;
+        return bt;
     }
 
     // ---------- Android Auto (Wave Mobile) ----------
@@ -837,7 +872,8 @@ public final class MainActivity extends Activity {
         /** The latest sound measurement for the page's analyzers and meters (see SpectrumView.frame). */
         @JavascriptInterface
         public String levels(int coverBars, int miniBars) {
-            return SpectrumView.frame(Math.max(0, Math.min(64, coverBars)), Math.max(0, Math.min(64, miniBars)));
+            return SpectrumView.frame(Math.max(0, Math.min(64, coverBars)), Math.max(0, Math.min(64, miniBars)))
+                    + "|" + (bluetoothOut() ? 1 : 0);
         }
 
         /** The page is drawing analyzers or meters (true) or not: the capture runs only then. */

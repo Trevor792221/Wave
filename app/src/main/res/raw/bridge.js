@@ -1424,7 +1424,7 @@
     });
     var vOn = row('VU meters', 'A VU meter and a peak meter in the top corners of the album art (Deck: one display across the top)');
     vOn.appendChild(toggle(info.vuOn !== false, function (v) { setting('vuOn', v ? 1 : 0); }));
-    var vStyle = row('Meter style', 'Needle meters, LED bars with a number, or a tape deck\'s glowing L and R level display');
+    var vStyle = row('Meter style', 'Needle meters, LED bars with a number, or a tape deck\'s glowing VU and peak (PK) level display');
     var styleSel = el('select', 'wv-sel');
     [['0', 'Analog'], ['1', 'Digital'], ['2', 'Deck']].forEach(function (o) { var op = el('option', '', o[1]); op.value = o[0]; styleSel.appendChild(op); });
     styleSel.value = String(info.vuStyle === 1 || info.vuStyle === 2 ? info.vuStyle : 0);
@@ -1442,7 +1442,7 @@
     var sa = section('Spectrum analyzer');
     sa.appendChild(card([aOn, aLabels, aSl]));
     p.appendChild(sa);
-    var vMini = row('Meters in the player bar', 'The small player at the bottom shows L and R level meters instead of the analyzer');
+    var vMini = row('Meters in the player bar', 'The small player at the bottom shows VU and peak (PK) level meters instead of the analyzer');
     vMini.appendChild(toggle(!!info.miniMeters, function (v) { setting('miniMeters', v ? 1 : 0); }));
     var sm = section('Meters');
     sm.appendChild(card([vOn, vStyle, vSl, vMatch, vMini]));
@@ -1899,6 +1899,17 @@
     if (m.pos >= m.held || now - m.heldAt > 1000) { m.held = m.pos; m.heldAt = now; }
   }
   var RED = '#E5484D';
+  // "BT" after the meter's name on Bluetooth: there the speaker sets the volume, so the meters show
+  // the level the phone sends (the song's own), not how loud it plays.
+  function btNote(x, left, base, size) {
+    if (!VZ.bt) return;
+    x.save();
+    x.font = '700 ' + size + 'px sans-serif';
+    x.textAlign = 'left';
+    x.fillStyle = 'rgba(120,180,255,.9)';
+    x.fillText('BT', left, base);
+    x.restore();
+  }
   function drawMeter(x, m, left, top, w, h, color, alpha, digital) {
     if (alpha < 0.004) return;
     x.save();
@@ -1920,6 +1931,7 @@
       x.textAlign = 'left';
       x.fillStyle = 'rgba(255,255,255,.8)';
       x.fillText(m.kind, left + pad, top + pad + ts * 0.8);
+      btNote(x, left + pad + x.measureText(m.kind + ' ').width, top + pad + ts * 0.8, ts * 0.8);
       var sv = Math.max(m.kind === 'VU' ? -20 : -40, m.reading);
       x.textAlign = 'right';
       x.fillStyle = (m.kind === 'VU' ? sv >= 0 : sv > 0.05) ? RED : 'rgba(255,255,255,.9)';
@@ -1964,6 +1976,7 @@
       x.font = '500 ' + ts2 * 0.95 + 'px sans-serif';
       x.fillStyle = 'rgba(255,255,255,.8)';
       x.fillText(m.kind, left + h * 0.1, top + h - ts2 * 0.55);
+      btNote(x, left + h * 0.1 + x.measureText(m.kind + ' ').width, top + h - ts2 * 0.55, ts2 * 0.8);
       var na = -S + 2 * S * m.pos, nx = Math.sin(na), ny = -Math.cos(na);
       x.strokeStyle = color;
       x.lineWidth = 1.6;
@@ -1971,15 +1984,17 @@
     }
     x.restore();
   }
-  // ---- The deck meters: a tape deck's glowing level display, L and R peak bars with the scale
-  // between them and an OVER mark. Peak reading in dBFS of the phone's output; OVER lights only
-  // when it goes past full scale (clipping). Android measures the mixed output, so L and R show
-  // the same level. ----
+  // ---- The deck meters: a tape deck's glowing level display, a VU (average) bar and a PK (peak)
+  // bar with the dBFS scale between them and an OVER mark that lights only when the peak goes past
+  // full scale (clipping). ----
   var DECK_DB = [-40, -35, -30, -26, -23, -20, -18, -16, -14, -12, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0];
   var DECK_SMALL = [-40, -30, -20, -14, -10, -8, -6, -4, -3, -2, -1, 0]; // when it's narrow (the player bar)
   var DECK_LABELS = [-40, -30, -20, -10, -6, -3, 0];
-  function deckMeter() { return { db: -96, hold: -96, holdAt: 0, overAt: -1e9, f: 0 }; }
-  function stepDeck(d, peak, dt, now, on) {
+  function deckMeter() { return { db: -96, vu: -96, hold: -96, holdAt: 0, overAt: -1e9, f: 0 }; }
+  // Top row VU: the average level (RMS) in dBFS, with a VU meter's slower movement. Bottom row PK:
+  // the peak level, with its peak held and OVER when it goes past full scale.
+  function stepDeck(d, peak, dt, now, on, rms) {
+    d.vu += ((on ? Math.max(-96, rms) : -96) - d.vu) * (1 - Math.exp(-dt / 0.3));
     var v = on ? peak : -96;
     d.db = v >= d.db ? v : Math.max(v, d.db - dt * 24); // falls 24 dB a second
     if (d.db >= d.hold || now - d.holdAt > 1500) { d.hold = d.db; d.holdAt = now; }
@@ -2003,7 +2018,7 @@
     x.clip();
     var scale = h >= 40, pad = Math.max(4, h * 0.13), ts = Math.max(7, Math.min(11, h * 0.17));
     x.font = '600 ' + ts + 'px sans-serif';
-    var nameW = x.measureText('R').width + pad * 0.8, overW = x.measureText('OVER').width;
+    var nameW = Math.max(x.measureText('VU').width, x.measureText('PK').width) + pad * 0.8, overW = x.measureText('OVER').width;
     var sl = left + pad + nameW, sr = left + w - pad, dbs = (sr - sl) / (DECK_DB.length + 1) >= 4 ? DECK_DB : DECK_SMALL, N = dbs.length + 1, gap = Math.max(1, (sr - sl) / N * 0.22);
     var segW = (sr - sl - gap * (N - 1)) / N;
     var barH = scale ? h * 0.2 : (h - pad * 2 - pad * 0.6) / 2;
@@ -2016,9 +2031,9 @@
       x.fillStyle = VFD;
       x.globalAlpha = alpha * 0.9;
       x.textAlign = 'left';
-      x.fillText(ri ? 'R' : 'L', left + pad, ry + barH / 2 + ts * 0.36);
-      for (var k = 0; k < N; k++) {
-        var isOver = k === N - 1, lit = isOver ? over : (d.db >= dbs[k] || k === holdI);
+      x.fillText(ri ? 'PK' : 'VU', left + pad, ry + barH / 2 + ts * 0.36);
+      for (var k = 0; k < N; k++) { // the VU row's OVER stays dark: an average can't show clipping
+        var isOver = k === N - 1, lit = isOver ? over && ri === 1 : ri ? (d.db >= dbs[k] || k === holdI) : d.vu >= dbs[k];
         var col = isOver ? '#FF5A4E' : VFD;
         x.globalAlpha = alpha * (lit ? 1 : 0.13);
         x.shadowBlur = lit ? 6 : 0;
@@ -2030,6 +2045,7 @@
     if (scale) { // the numbers between the bars, each under its own segment
       x.shadowBlur = 0;
       x.globalAlpha = alpha * 0.85;
+      btNote(x, left + pad * 0.6, top + h / 2 + ts * 0.32, ts * 0.75);
       x.font = '500 ' + ts * 0.9 + 'px sans-serif';
       x.textAlign = 'center';
       var my = top + h / 2 + ts * 0.32, lastRight = -1e9;
@@ -2130,6 +2146,7 @@
     if (want) { try { data = String(WaveApp.levels(wantCover && cfg.analyzerOn ? 40 : 0, wantMini && !cfg.miniMeters ? 32 : 0)).split('|'); } catch (e) {} }
     var hearing = !!data && data[0] === '1', lowHz = data ? parseFloat(data[1]) || 46.9 : 46.9;
     var rms = data ? parseFloat(data[2]) : -96, pk = data ? parseFloat(data[3]) : -96;
+    VZ.bt = !!data && data[6] === '1'; // Bluetooth: the speaker sets the volume, the meters show what's sent
     var coverDb = data && data[4] ? data[4].split(',').map(Number) : null, miniDb = data && data[5] ? data[5].split(',').map(Number) : null;
     // Over the cover.
     var cv = VZ.cover;
@@ -2177,7 +2194,7 @@
         var my = Math.min((cv.shownTop || 0) + inset, ah * 0.5);
         if (cfg.vuStyle === 2) { // Deck: one display across the top, L above R
           if (!cv.deck) cv.deck = deckMeter();
-          stepDeck(cv.deck, pk, dt, now, hearing);
+          stepDeck(cv.deck, pk, dt, now, hearing, rms);
           drawDeck(x, cv.deck, inset, my, aw - inset * 2, Math.max(44, Math.min(80, aw * 0.15)), va, now, true, vizColor('cover'));
         } else {
           stepMeter(cv.vu, rms, pk, dt, now, hearing);
@@ -2201,7 +2218,7 @@
       mv.canvas.style.left = (r[0] - fr.left - footer.clientLeft) + 'px';
       mv.canvas.style.top = (r[1] - fr.top - footer.clientTop) + 'px';
       var mx = fit(mv.canvas, r[2], r[3]);
-      if (cfg.miniMeters) drawDeck(mx, mv.m, 0, 0, r[2], r[3], stepDeck(mv.m, pk, dt, now, hearing && playing), now, false, vizColor('mini'));
+      if (cfg.miniMeters) drawDeck(mx, mv.m, 0, 0, r[2], r[3], stepDeck(mv.m, pk, dt, now, hearing && playing, rms), now, false, vizColor('mini'));
       else {
         var mf = stepBars(mv.bars, miniDb, dt, now, hearing && playing);
         if (mf > 0.003) drawBars(mx, mv.bars, 0, 0, r[2], r[3], vizColor('mini', true), mf);
@@ -2318,6 +2335,16 @@
     }
     addEventListener('touchend', end, { passive: true, capture: true });
     addEventListener('touchcancel', function () { active = false; settle(art); }, { passive: true, capture: true });
+  };
+
+  // Back (the phone's back button or gesture): the full-screen player closes, as its own close
+  // button does. Says whether it did (otherwise the app goes back a page).
+  W.back = function () {
+    if (!((fairStore && playerOpen()) || playerTabsShown())) return false;
+    var close = document.querySelector('[data-test="new-now-playing-close"]');
+    if (!close) return false;
+    close.click();
+    return true;
   };
 
   W.ready = true;

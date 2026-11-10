@@ -32,7 +32,7 @@ final class SpectrumView extends View {
     static final int DEFAULT_COLOR = 0xFF33C3F0;
 
     // ---- The shared capture ----
-    private static Visualizer visualizer;
+    private static volatile Visualizer visualizer; // read from the page's thread too
     /** Everything using the capture: analyzers and VU meters. */
     private static final Set<Object> running = new HashSet<>();
     private static byte[] fft;
@@ -270,15 +270,17 @@ final class SpectrumView extends View {
     }
 
     private static void close() {
-        if (visualizer == null) return;
+        Visualizer v = visualizer;
+        if (v == null) return;
+        visualizer = null; // first, so the page's thread stops reading it
         try {
-            visualizer.setEnabled(false);
+            v.setEnabled(false);
         } catch (RuntimeException ignored) {
             // Released anyway.
         }
-        visualizer.release();
-        visualizer = null;
+        v.release();
         fft = null;
+        pollRate = 0;
     }
 
     /** A capture taken on the old output hears nothing on the new one: start it again. */
@@ -339,10 +341,44 @@ final class SpectrumView extends View {
                 .append(Math.round(lv[0] * 10) / 10f).append('|').append(Math.round(lv[1] * 10) / 10f).append('|');
         byte[] f = fft;
         int rate = fftRateMilliHz;
+        // The newest capture, read now (each screen frame) instead of waiting for Android's
+        // updates, which come only about 20 times a second.
+        if (coverBars > 0 || miniBars > 0) {
+            byte[] now = pollFft();
+            if (now != null) {
+                f = now;
+                if (rate <= 0) rate = pollRate;
+            }
+        }
         appendBars(b, f, rate, coverBars);
         b.append('|');
         appendBars(b, f, rate, miniBars);
         return b.toString();
+    }
+
+    private static byte[] pollBuf;
+    private static int pollRate;
+
+    /** Android's newest FFT capture (null if it can't be read), also noting when sound was heard. */
+    private static byte[] pollFft() {
+        Visualizer v = visualizer;
+        if (v == null) return null;
+        try {
+            int size = v.getCaptureSize();
+            byte[] buf = pollBuf;
+            if (buf == null || buf.length != size) buf = pollBuf = new byte[size];
+            if (v.getFft(buf) != Visualizer.SUCCESS) return null;
+            if (pollRate == 0) pollRate = v.getSamplingRate();
+            for (byte x : buf) {
+                if (x != 0) {
+                    heardAt = SystemClock.uptimeMillis();
+                    break;
+                }
+            }
+            return buf;
+        } catch (RuntimeException e) {
+            return null; // released or switching output: the last capture is used
+        }
     }
 
     private static void appendBars(StringBuilder out, byte[] f, int rate, int bars) {
