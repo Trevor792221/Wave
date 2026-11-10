@@ -525,9 +525,11 @@ public final class MainActivity extends Activity {
         watchNetwork();
     }
 
-    // ---------- Wi-Fi or mobile data (Wave Mobile) ----------
-    // The page picks Tidal's audio quality for the network in use ("wifi" or "cell"); anything
-    // that isn't mobile data (Wi-Fi, Ethernet...) counts as Wi-Fi.
+    // ---------- Wi-Fi, mobile data or satellite (Wave Mobile) ----------
+    // The page picks Tidal's audio quality for the network in use ("wifi" or "cell"; "sat" is
+    // mobile data with adaptive streaming forced on); anything else (Wi-Fi, Ethernet...) counts as Wi-Fi.
+    private static final int TRANSPORT_SATELLITE = 10; // NetworkCapabilities, Android 15
+    private static final int NOT_BANDWIDTH_CONSTRAINED = 37; // NetworkCapabilities, Android 16
     private String network = "wifi";
     private android.net.ConnectivityManager.NetworkCallback networkCallback;
 
@@ -538,7 +540,10 @@ public final class MainActivity extends Activity {
         networkCallback = new android.net.ConnectivityManager.NetworkCallback() {
             @Override
             public void onCapabilitiesChanged(android.net.Network n, android.net.NetworkCapabilities caps) {
-                String now = caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)
+                // Satellite: its own transport, or (Android 16) a bandwidth-constrained network.
+                boolean sat = caps.hasTransport(TRANSPORT_SATELLITE)
+                        || (Build.VERSION.SDK_INT >= 36 && !caps.hasCapability(NOT_BANDWIDTH_CONSTRAINED));
+                String now = sat ? "sat" : caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)
                         && !caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) ? "cell" : "wifi";
                 handler.post(() -> {
                     if (now.equals(network)) return;
@@ -794,6 +799,7 @@ public final class MainActivity extends Activity {
                         .put("vuStyle", prefs.getInt("vuStyle", 0))
                         .put("miniMeters", prefs.getBoolean("miniMeters", false))
                         .put("vizAdaptive", prefs.getBoolean("vizAdaptive", true))
+                        .put("qualitySize", prefs.getInt("qualitySize", 14))
                         .put("anaAdaptive", prefs.getBoolean("anaAdaptive", true))
                         .put("vizColor", String.format("#%06X", prefs.getInt("vizColor", 0x33C3F0) & 0xFFFFFF))
                         .put("textSize", prefs.getInt("pageScale", 100))
@@ -812,7 +818,7 @@ public final class MainActivity extends Activity {
             if (!BuildConfig.BETA) return;
             restartAfterCrash = true;
             handler.postDelayed(() -> {
-                throw new IllegalStateException("Test crash from the Wave tab (Wave Beta)");
+                throw new IllegalStateException("Test crash from the developer options (Wave Beta)");
             }, 300);
         }
 
@@ -853,6 +859,7 @@ public final class MainActivity extends Activity {
                 case "vuStyle": e.putInt(key, value == 1 || value == 2 ? value : 0); break;
                 case "vizColor": e.putInt(key, value & 0xFFFFFF); break;
                 case "textSize": e.putInt("pageScale", Math.max(80, Math.min(130, value))); break;
+                case "qualitySize": e.putInt(key, Math.max(10, Math.min(24, value))); break; // sp (developer options)
                 default: return;
             }
             e.apply();
@@ -860,6 +867,10 @@ public final class MainActivity extends Activity {
                 coverAnalyzer.enabled = prefs.getBoolean("analyzerOn", true);
                 updateSpectrum();
                 if ("textSize".equals(key)) applyViewport();
+                if ("qualitySize".equals(key) && qualityView != null) {
+                    qualityView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, prefs.getInt("qualitySize", 14));
+                    placeQuality();
+                }
             });
         }
 
@@ -1062,7 +1073,7 @@ public final class MainActivity extends Activity {
         if (qualityView == null) {
             qualityView = new android.widget.TextView(this);
             qualityView.setTextColor(0xB3FFFFFF);
-            qualityView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
+            qualityView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, prefs.getInt("qualitySize", 14));
             int ph = Math.round(28 * density), pv = Math.round(8 * density);
             qualityView.setPadding(ph, pv, ph, pv); // room for the glow around the text
             qualityView.setGravity(android.view.Gravity.CENTER);
@@ -1262,7 +1273,7 @@ public final class MainActivity extends Activity {
     // A crash's details are kept in a file; next launch offers to share them (then deletes them).
 
     private static boolean crashLogInstalled;
-    /** A test crash (Wave Beta's Wave tab): Wave opens again right after it. */
+    /** A test crash (Wave Beta's developer options): Wave opens again right after it. */
     private static volatile boolean restartAfterCrash;
 
     private void installCrashLog() {

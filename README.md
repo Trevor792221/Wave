@@ -48,11 +48,15 @@ In the full-screen player:
 
 Swipes that start on the player bar (its buttons and seek bar) are left to Tidal.
 
-Tidal's page is drawn at the same size on every phone, whatever the phone's own font size. **Text size** in Settings → Wave tab → Display (80–130%) makes the whole page bigger or smaller together (text, rows and buttons), so nothing overlaps. Tidal's phone layout needs the page at least 360 px wide, so a narrow screen gets as much of the size as fits (e.g. about 114% on a 412 dp phone), and a wider one, unfolded or in landscape, gets more.
+Tidal's page is drawn at the same size on every phone, whatever the phone's own font size. **Text size** in Settings → Visuals tab → Display (80–130%) makes the whole page bigger or smaller together (text, rows and buttons), so nothing overlaps. Tidal's phone layout needs the page at least 360 px wide, so a narrow screen gets as much of the size as fits (e.g. about 114% on a 412 dp phone), and a wider one, unfolded or in landscape, gets more.
 
 ### Audio quality on Wi-Fi and mobile data
 
-In **Settings → General**, Tidal's single audio quality is replaced by two: **On Wi-Fi** and **On mobile data**, each with Low (96 or 320 kbps), High and Max. Wave tells Tidal the right one whenever the phone switches networks, also in the background and in the car. Both start as the quality chosen before. Adaptive streaming stays as Tidal has it.
+In **Settings → General**, Tidal's single audio quality is replaced by two: **On Wi-Fi** and **On mobile data**, each with Low (96 or 320 kbps), High and Max. Wave tells Tidal the right one whenever the phone switches networks, also in the background and in the car. Wi-Fi and mobile data start as the quality chosen before; satellite starts at Low 96 kbps. Adaptive streaming stays as Tidal has it.
+
+**Satellite data** (T-Mobile's T-Satellite with Starlink, and other carriers' satellite data, Android 15 and later): Android only lets apps that declare themselves satellite-ready use a satellite connection, and Wave does. On satellite, Wave uses the **On mobile data** quality with Tidal's **Adaptive streaming** always on, so the quality drops to what the slow link carries; back on Wi-Fi or mobile data, Adaptive streaming goes back to how it was. Satellite data is slow and limited, so expect slow loading; whether the carrier's plan carries an app's data is up to the carrier.
+
+**Developer options**: tapping the version 5 times in the **Updates** tab (which also has the license) shows them: **Soft pause fades** (fade-out and fade-in length, 800 ms each to start, and the number of volume steps, 200), **Quality line** size (14 sp to start), and in Wave Beta builds **Test crash**. **Hide** puts them away again.
 
 While music plays, a notification shows the song, artist, cover and progress, with previous, play/pause and next. These buttons, the lock screen, headphone buttons and Android Auto all send Tidal's own player commands, the same ones its player buttons send.
 

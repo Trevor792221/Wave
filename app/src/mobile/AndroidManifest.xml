@@ -14,6 +14,10 @@
     <application>
         <meta-data android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />
+        <!-- Satellite data (T-Mobile's T-Satellite and others, Android 15+): Android only lets apps
+             that say they're satellite-ready use it. There Wave turns on Tidal's adaptive streaming. -->
+        <meta-data android:name="android.telephony.PROPERTY_SATELLITE_DATA_OPTIMIZED"
+            android:value="${applicationId}" />
         <service android:name=".WaveMediaService" android:exported="true"
             tools:ignore="ExportedService">
             <intent-filter>

@@ -29,7 +29,15 @@
     if (proto.pause.__waveFade) return;
     var OUTPUT_TAIL_MS = 250, STEP_MS = 8;
     // 0.8 s each way in 200 even volume steps (one every 4 ms: as smooth as the page can go).
-    var PAUSE_OUT_MS = 800, RESUME_IN_MS = 800, FADE_STEPS = 200;
+    // Developer options can change them (wave.fadeOut / wave.fadeIn in ms, wave.fadeSteps).
+    var fadeSetting = function (k, def, lo, hi) {
+      var v = NaN;
+      try { v = parseInt(localStorage.getItem('wave.' + k), 10); } catch (e) {}
+      return isFinite(v) ? Math.max(lo, Math.min(hi, v)) : def;
+    };
+    var outMs = function () { return fadeSetting('fadeOut', 800, 50, 3000); };
+    var inMs = function () { return fadeSetting('fadeIn', 800, 50, 3000); };
+    var fadeSteps = function () { return fadeSetting('fadeSteps', 200, 10, 400); };
     // On or off: the "Soft pause" switch above Tidal's Crossfade setting (on by default).
     var softOn = function () { try { return localStorage.getItem('wave.softPause') !== '0'; } catch (e) { return true; } };
     var clamp = function (v) { return Math.max(0, Math.min(1, v)); };
@@ -97,7 +105,7 @@
     }
     function fadeOutThenPause(el) {
       var st = state(el);
-      ramp(el, 0, PAUSE_OUT_MS, 'pause', fadeOutDone, FADE_STEPS);
+      ramp(el, 0, outMs(), 'pause', fadeOutDone, fadeSteps());
       function fadeOutDone() {
         var fade = { kind: 'pause', timer: 0 };
         st.fade = fade;
@@ -141,30 +149,30 @@
         var so = state(other);
         if (other === self || so.pausedWith !== self) return;
         so.pausedWith = null;
-        if (so.fade && so.fade.kind === 'pause') ramp(other, 1, RESUME_IN_MS, 'in', null, FADE_STEPS);
+        if (so.fade && so.fade.kind === 'pause') ramp(other, 1, inMs(), 'in', null, fadeSteps());
         else if (other.paused) {
           so.resumeIn = false;
           setMult(other, 0);
           var p = realPlay.call(other);
-          ramp(other, 1, RESUME_IN_MS, 'in', null, FADE_STEPS);
+          ramp(other, 1, inMs(), 'in', null, fadeSteps());
           if (p && p.catch) p.catch(function () {});
         }
       });
       if (st.fade && st.fade.kind === 'pause') { // played again while fading out: never stopped
-        ramp(this, 1, RESUME_IN_MS, 'in', null, FADE_STEPS);
+        ramp(this, 1, inMs(), 'in', null, fadeSteps());
         return Promise.resolve();
       }
       if (this.paused && st.resumeIn && !st.newTrack && audible(this) && this.currentTime >= 0.5) {
         st.resumeIn = false;
         setMult(this, 0);
         var result = realPlay.call(this);
-        ramp(this, 1, RESUME_IN_MS, 'in', null, FADE_STEPS);
+        ramp(this, 1, inMs(), 'in', null, fadeSteps());
         if (result && result.catch) result.catch(function () { stopFade(self); setMult(self, 1); });
         return result;
       }
       return realPlay.call(this);
     };
-    W.fadeMs = function () { return softOn() ? PAUSE_OUT_MS + OUTPUT_TAIL_MS : 0; }; // how long a pause takes to really stop
+    W.fadeMs = function () { return softOn() ? outMs() + OUTPUT_TAIL_MS : 0; }; // how long a pause takes to really stop
   })();
 
   // Full screen is refused (Wave is already full screen; the player's full-screen button only
@@ -1047,6 +1055,10 @@
   // Tidal has one streaming quality (settings.quality.streaming). Wave keeps one for Wi-Fi and one
   // for mobile data, and sends Tidal's own command (settings/SET_STREAMING_QUALITY, seen with
   // Wave Probe) whenever the network or the choice changes. Both start as Tidal's current choice.
+  // A satellite connection (T-Mobile's T-Satellite and others) counts as mobile data, always with
+  // Tidal's adaptive streaming on (settings/SET_ADAPTIVE_AUDIO_STREAMING_ENABLED, seen with Wave
+  // Probe 5), so the quality drops to what the slow link carries; leaving it puts the adaptive
+  // streaming switch back as it was.
   var QUALITIES = { LOW: 1, HIGH: 1, LOSSLESS: 1, HI_RES_LOSSLESS: 1 };
   var net = 'wifi', netKnown = false, settingQuality = false;
   function tidalQuality() {
@@ -1063,6 +1075,7 @@
   }
   function applyQuality() {
     if (!W.phone || !netKnown || !fairStore) return;
+    applyAdaptive();
     var cur = tidalQuality(), want = savedQuality(net);
     if (!want) { // first time: both networks start from Tidal's current choice
       if (!QUALITIES[cur]) return;
@@ -1075,7 +1088,25 @@
     try { fairStore.dispatch({ type: 'settings/SET_STREAMING_QUALITY', payload: { from: cur, to: want } }); } catch (e) {}
     settingQuality = false;
   }
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
+  function devOn() { return lsGet('wave.dev') === '1'; } // developer options (Wave tab)
+  var onSat = false;
+  function applyAdaptive() {
+    var on;
+    try { on = fairStore.getState().settings.adaptiveAudioStreamingEnabled; } catch (e) { return; }
+    if (typeof on !== 'boolean') return;
+    var before = lsGet('wave.adaptive.before'); // the switch before satellite (kept across restarts)
+    var want = onSat ? true : before === null ? on : before === '1';
+    if (onSat && before === null) lsSet('wave.adaptive.before', on ? '1' : '0');
+    if (!onSat) lsSet('wave.adaptive.before', null);
+    if (want !== on) {
+      try { fairStore.dispatch({ type: 'settings/SET_ADAPTIVE_AUDIO_STREAMING_ENABLED', payload: want }); } catch (e) {}
+    }
+  }
   W.setNetwork = function (n) {
+    onSat = n === 'sat';
+    if (onSat) n = 'cell';
     net = n === 'cell' ? 'cell' : 'wifi';
     netKnown = true;
     applyQuality();
@@ -1157,8 +1188,10 @@
     if (!qualityBox || !qualityBox.isConnected) return;
     var cards = qualityBox.querySelectorAll('.wv-card');
     for (var i = 0; i < cards.length; i++) {
-      var c = cards[i], n = c.getAttribute('data-net'), q = savedQuality(n) || tidalQuality();
-      c.head.sub.textContent = netKnown && n === net ? 'In use now' : (n === 'cell' ? 'When the phone uses mobile data' : 'When the phone is on Wi-Fi');
+      var c = cards[i], n = c.getAttribute('data-net');
+      c.head.sub.textContent = netKnown && n === net ? (onSat ? 'In use now, by satellite (adaptive streaming on)' : 'In use now') :
+        (n === 'cell' ? 'When the phone uses mobile data or satellite' : 'When the phone is on Wi-Fi');
+      var q = savedQuality(n) || tidalQuality();
       var opts = c.querySelectorAll('.wv-opt');
       for (var k = 0; k < opts.length; k++) {
         var o = opts[k].opt, on = o.values.indexOf(q) >= 0;
@@ -1418,30 +1451,10 @@
     sc.appendChild(colorCard(info));
     p.appendChild(sc);
   }
-  var ui = {};
-  function buildPanel(which) {
-    settingsCss();
-    var info = {};
-    try { info = JSON.parse(WaveApp.appInfo()); } catch (e) {}
-    var p = el('div');
-    p.setAttribute('data-test', 'settings-page-' + which);
-    if (which === 'visuals') { buildVisuals(p, info); return p; }
-
-    var s1 = section('Shuffle'), fair = row('Fair shuffle',
-      'With shuffle on, no song repeats until every song in the list has played. Holding the shuffle button switches it too.');
-    ui.fair = toggle(fairOn, function (v) { setFair(v, true); });
-    fair.appendChild(ui.fair);
-    s1.appendChild(card([fair]));
-    p.appendChild(s1);
-
-    // Each list's fair shuffle round: how many of its songs have played, with a reset.
-    var s1b = section('Played this round');
-    ui.rounds = el('div', 'wv-card');
-    s1b.appendChild(ui.rounds);
-    p.appendChild(s1b);
-    renderRounds();
-
-    if (info.phone) { // phones: how big Tidal's page is drawn (the TV has Menu-hold page widths)
+  // The Visuals tab's Display section (phones): how big Tidal's page is drawn (the TV has
+  // Menu-hold page widths).
+  function buildDisplay(p, info) {
+    if (info.phone) {
       var sd = section('Display');
       var ts = isFinite(info.textSize) ? info.textSize : 100, tmax = isFinite(info.textSizeMax) ? info.textSizeMax : 130;
       // What applies on this screen: Tidal's layout can't get narrower than the app allows.
@@ -1458,7 +1471,10 @@
       sd.appendChild(card([trow]));
       p.appendChild(sd);
     }
-
+  }
+  // The Updates tab: the version and updates, the developer options (tap the version 5 times)
+  // and the license.
+  function buildUpdates(p, info) {
     var s2 = section('Updates');
     var ver = row((info.name || 'Wave') + ' ' + (info.version || ''), 'Updates come from Wave\'s releases on GitHub.');
     ui.status = ver.sub;
@@ -1466,28 +1482,26 @@
     ui.check.type = 'button';
     ui.check.onclick = function () { WaveApp.update(ui.check.getAttribute('data-install') ? 'install' : 'check'); };
     ver.appendChild(ui.check);
+    // Tapping the version 5 times turns on the developer options (below).
+    var taps = 0, tapAt = 0, verTitle = ver.querySelector('.wv-t');
+    verTitle.style.cursor = 'pointer';
+    verTitle.onclick = function () {
+      var now = Date.now();
+      taps = now - tapAt < 1500 ? taps + 1 : 1;
+      tapAt = now;
+      if (devOn()) { if (taps === 1) note('Developer options are already on'); return; }
+      if (taps >= 5) {
+        lsSet('wave.dev', '1');
+        taps = 0;
+        note('Developer options are on');
+        showDev(p, s3, info);
+      } else if (taps >= 2) note((5 - taps) + (5 - taps === 1 ? ' more tap' : ' more taps') + ' for developer options');
+    };
     var auto = row('Check automatically', 'Once a day, the first time you open Wave.');
     auto.appendChild(toggle(info.auto !== false, function (v) { WaveApp.setAutoUpdate(v); }));
     s2.appendChild(card([ver]));
     s2.appendChild(card([auto]));
     p.appendChild(s2);
-
-    var sc = section('Crash reports');
-    var cr = row('Send crash reports automatically',
-      'After a crash, the next time Wave opens it posts the details (app version, Android version, phone model and the error) ' +
-      'as an issue on Wave\'s GitHub page, where they\'re public.' + (info.crashRelay ? '' : ' Not set up in this build yet.'));
-    cr.appendChild(toggle(!!info.crashAuto, function (v) { WaveApp.setCrashAuto(v); }));
-    var crashCard = [cr];
-    if (info.beta) { // test builds: crash on purpose to try it
-      var tc = row('Test crash', 'Stops Wave on purpose and opens it again, to try the crash report. Wave Beta only.');
-      var tb = el('button', 'wv-btn', 'Crash');
-      tb.type = 'button';
-      tb.onclick = function () { tb.disabled = true; tb.textContent = 'Crashing…'; WaveApp.testCrash(); };
-      tc.appendChild(tb);
-      crashCard.push(tc);
-    }
-    sc.appendChild(card(crashCard));
-    p.appendChild(sc);
 
     var s3 = section('License');
     var lic = row('GNU General Public License, version 3',
@@ -1504,8 +1518,103 @@
     s3.appendChild(card([lic, perm, src]));
     s3.appendChild(card([tm]));
     p.appendChild(s3);
+    if (devOn()) showDev(p, s3, info);
     if (lastUpdate) W.updateStatus(lastUpdate);
+  }
+  var ui = {};
+  function buildPanel(which) {
+    settingsCss();
+    var info = {};
+    try { info = JSON.parse(WaveApp.appInfo()); } catch (e) {}
+    var p = el('div');
+    p.setAttribute('data-test', 'settings-page-' + which);
+    if (which === 'visuals') { buildVisuals(p, info); buildDisplay(p, info); return p; }
+    if (which === 'updates') { buildUpdates(p, info); return p; }
+
+    var s1 = section('Shuffle'), fair = row('Fair shuffle',
+      'With shuffle on, no song repeats until every song in the list has played. Holding the shuffle button switches it too.');
+    ui.fair = toggle(fairOn, function (v) { setFair(v, true); });
+    fair.appendChild(ui.fair);
+    s1.appendChild(card([fair]));
+    p.appendChild(s1);
+
+    // Each list's fair shuffle round: how many of its songs have played, with a reset.
+    var s1b = section('Played this round');
+    ui.rounds = el('div', 'wv-card');
+    s1b.appendChild(ui.rounds);
+    p.appendChild(s1b);
+    renderRounds();
+
+    var sc = section('Crash reports');
+    var cr = row('Send crash reports automatically',
+      'After a crash, the next time Wave opens it posts the details (app version, Android version, phone model and the error) ' +
+      'as an issue on Wave\'s GitHub page, where they\'re public.' + (info.crashRelay ? '' : ' Not set up in this build yet.'));
+    cr.appendChild(toggle(!!info.crashAuto, function (v) { WaveApp.setCrashAuto(v); }));
+    var crashCard = [cr];
+    sc.appendChild(card(crashCard));
+    p.appendChild(sc);
+
     return p;
+  }
+  // Developer options: hidden until the version is tapped 5 times (Updates tab).
+  function devSlider(label, unit, min, max, step, value, change) {
+    var r = row(label + ': ' + value + unit, ''), t = r.querySelector('.wv-t');
+    r.querySelector('.wv-s').style.display = 'none';
+    r.style.flexDirection = 'column';
+    r.style.alignItems = 'stretch';
+    var sl = el('input', 'wv-range');
+    sl.type = 'range'; sl.min = String(min); sl.max = String(max); sl.step = String(step); sl.value = String(value);
+    sl.oninput = function () { t.textContent = label + ': ' + sl.value + unit; };
+    sl.onchange = function () { change(Number(sl.value)); }; // when let go
+    r.appendChild(sl);
+    r.set = function (v) { sl.value = String(v); t.textContent = label + ': ' + v + unit; };
+    return r;
+  }
+  function showDev(p, before, info) {
+    if (p.querySelector('[data-wave-dev]')) return;
+    var sd = section('Developer options');
+    sd.setAttribute('data-wave-dev', '1');
+    // Soft pause's fades (General tab → Soft pause): their lengths and how many volume steps.
+    var fade = function (k, def) { var v = parseInt(lsGet('wave.' + k), 10); return isFinite(v) ? v : def; };
+    var fOut = devSlider('Fade out', ' ms', 50, 3000, 50, fade('fadeOut', 800), function (v) { lsSet('wave.fadeOut', String(v)); });
+    var fIn = devSlider('Fade in', ' ms', 50, 3000, 50, fade('fadeIn', 800), function (v) { lsSet('wave.fadeIn', String(v)); });
+    var fSteps = devSlider('Fade steps', '', 10, 400, 10, fade('fadeSteps', 200), function (v) { lsSet('wave.fadeSteps', String(v)); });
+    var fHead = row('Soft pause fades', 'How long pausing fades out and playing fades in, and in how many volume steps (more: smoother).');
+    var fReset = el('button', 'wv-btn', 'Reset');
+    fReset.type = 'button';
+    fReset.onclick = function () {
+      ['fadeOut', 'fadeIn', 'fadeSteps'].forEach(function (k) { lsSet('wave.' + k, null); });
+      fOut.set(800); fIn.set(800); fSteps.set(200);
+    };
+    fHead.appendChild(fReset);
+    sd.appendChild(card([fHead, fOut, fIn, fSteps]));
+    // The quality line under the album art (FLAC · 16-bit / 44.1 kHz …).
+    var qs = isFinite(info.qualitySize) ? info.qualitySize : 14;
+    var qSize = devSlider('Quality line size', ' sp', 10, 24, 1, qs, function (v) { try { WaveApp.setSetting('qualitySize', v); } catch (e) {} });
+    var qHead = row('Quality line', 'The size of the line under the album art that shows the song\'s quality.');
+    var qReset = el('button', 'wv-btn', 'Reset');
+    qReset.type = 'button';
+    qReset.onclick = function () { qSize.set(14); try { WaveApp.setSetting('qualitySize', 14); } catch (e) {} };
+    qHead.appendChild(qReset);
+    sd.appendChild(card([qHead, qSize]));
+    if (info.beta) { // test builds: crash on purpose to try it
+      var tc = row('Test crash', 'Stops Wave on purpose and opens it again, to try the crash report. Wave Beta only.');
+      var tb = el('button', 'wv-btn', 'Crash');
+      tb.type = 'button';
+      tb.onclick = function () { tb.disabled = true; tb.textContent = 'Crashing…'; WaveApp.testCrash(); };
+      tc.appendChild(tb);
+      sd.appendChild(card([tc]));
+    }
+    var off = row('Hide developer options', 'Turns these off and hides them again. Tap the version 5 times to bring them back.');
+    var ob = el('button', 'wv-btn', 'Hide');
+    ob.type = 'button';
+    ob.onclick = function () {
+      lsSet('wave.dev', null);
+      if (sd.parentNode) sd.parentNode.removeChild(sd);
+    };
+    off.appendChild(ob);
+    sd.appendChild(card([off]));
+    p.insertBefore(sd, before);
   }
   var lastUpdate = null;
   W.updateStatus = function (u) {
@@ -1554,9 +1663,10 @@
   function stripActive(e) {
     e.className = String(e.className).split(/\s+/).filter(function (c) { return !/_active_/.test(c); }).join(' ');
   }
-  // Wave's two tabs after Tidal's: Visuals (the analyzers and meters) and Wave (everything else).
-  var WAVE_TABS = [['visuals', 'Visuals'], ['wave', 'Wave']];
-  function isWaveTab(e) { return /^settings-tab--(wave|visuals)$/.test(e.getAttribute('data-test') || ''); }
+  // Wave's tabs after Tidal's: Visuals (the analyzers, meters and text size), Wave (shuffle and
+  // crash reports) and Updates (updates, developer options, license).
+  var WAVE_TABS = [['visuals', 'Visuals'], ['wave', 'Wave'], ['updates', 'Updates']];
+  function isWaveTab(e) { return /^settings-tab--(wave|visuals|updates)$/.test(e.getAttribute('data-test') || ''); }
   function showWave(which) {
     which = which || waveTab || 'wave';
     var page = document.querySelector('[data-test="settings-page"]'), tabs = tabRow();
