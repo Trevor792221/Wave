@@ -70,15 +70,19 @@ Two analyzers in the colour of the song's cover (its strongest colour):
 - **Over the album art** in the full-screen player: see-through bars (30% to start) standing on the cover's bottom edge, with the frequencies (from the lowest one Android measures, about 47 Hz, up to 20 kHz) just under the cover.
 - **In the player bar**, between the time and the buttons on the right: solid bars, while music plays and the full-screen player is closed.
 
-Both fade in when there's sound and fade out with silence (and when playback pauses). The opacity of the one over the cover is set in Settings → Wave tab (30% to start).
+Both fade in when there's sound and fade out with silence (and when playback pauses). The opacity of the one over the cover is set in Settings → Visuals tab (30% to start).
 
 ### VU meters
 
-Two needle meters sit inside the top corners of the cover in the full-screen player: **VU** (the averaged level, with a VU meter's slow needle; 0 VU = −18 dBFS) and **PEAK** (the peak level, a fast needle that falls back slowly; −40 to 0 dBFS). Android's capture is one combined signal, so they show two views of it rather than left and right. The needles take the cover's strongest colour, and the meters fade with the sound like the analyzers.
+Two needle meters sit inside the top corners of the cover in the full-screen player: **VU** (the averaged level, with a VU meter's slow needle; 0 VU = −18 dBFS) and **PEAK** (the peak level, a fast needle that falls back slowly; −40 to +3 dBFS). PEAK goes into the red only above 0 dBFS: the phone's output, after its volume, went over full scale and clipped. Android's capture is one combined signal, so they show two views of it rather than left and right. The needles take the cover's strongest colour, and the meters fade with the sound like the analyzers.
 
-**Meter style** picks how they look: **Analog** (needles) or **Digital** (LED bars in the cover's colour with a live reading, e.g. `−3.2 VU`, and the last peak held for a second).
+**Meter style** picks how they look: **Analog** (needles), **Digital** (LED bars in the cover's colour with a live reading, e.g. `−3.2 VU`, and the last peak held for a second), or **Deck**: a tape deck's glowing level display, L and R peak bars with the scale between them, across the top of the cover. Its red **OVER** lights only when the output clips. Android measures the mixed output, so L and R move together.
 
-In Settings → Wave tab → **Player**: the spectrum analyzer, its **frequency numbers** (hidden by themselves wherever Tidal's player is drawn over them, like the player bar in landscape) and the VU meters can each be switched off, each has an opacity slider, and **Match the analyzer's opacity** makes the VU meters follow the analyzer's.
+**Adaptive colour** (on by default) colours them from the album art, switched separately for the analyzers and for the meters. Whichever is off uses one fixed colour picked with Hue, Saturation and Brightness sliders; **Reset** goes back to Wave's blue (#33C3F0). The OVER and red scale marks stay red.
+
+**Meters in the player bar** shows the deck meters in the small player at the bottom instead of its analyzer, without the display's dark background.
+
+In Settings → **Visuals** tab (sections Spectrum analyzer, Meters and Colour): the spectrum analyzer, its **frequency numbers** (hidden by themselves wherever Tidal's player is drawn over them, like the player bar in landscape) and the VU meters can each be switched off, each has an opacity slider, and **Match the analyzer's opacity** makes the VU meters follow the analyzer's.
 
 An analyzer hides while a menu or dialog covers it.
 

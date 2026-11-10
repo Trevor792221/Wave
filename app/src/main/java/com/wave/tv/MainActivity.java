@@ -792,6 +792,10 @@ public final class MainActivity extends Activity {
                         .put("vuOpacity", prefs.getInt("vuOpacity", 60))
                         .put("vuMatch", prefs.getBoolean("vuMatch", false))
                         .put("vuStyle", prefs.getInt("vuStyle", 0))
+                        .put("miniMeters", prefs.getBoolean("miniMeters", false))
+                        .put("vizAdaptive", prefs.getBoolean("vizAdaptive", true))
+                        .put("anaAdaptive", prefs.getBoolean("anaAdaptive", true))
+                        .put("vizColor", String.format("#%06X", prefs.getInt("vizColor", 0x33C3F0) & 0xFFFFFF))
                         .put("textSize", prefs.getInt("pageScale", 100))
                         .put("textSizeMax", maxPageScale())
                         .put("phone", !BuildConfig.TV)
@@ -839,14 +843,15 @@ public final class MainActivity extends Activity {
             });
         }
 
-        /** The Wave tab's player settings: analyzerOn, vuOn, vuMatch (0/1), vuOpacity (percent), vuStyle (0 analog, 1 digital). */
+        /** The Wave tab's player settings: analyzerOn, vuOn, vuMatch (0/1), vuOpacity (percent), vuStyle (0 analog, 1 digital, 2 deck), miniMeters (0/1), vizAdaptive (meters) and anaAdaptive (analyzers) (0/1), vizColor (RGB). */
         @JavascriptInterface
         public void setSetting(String key, int value) {
             SharedPreferences.Editor e = prefs.edit();
             switch (key == null ? "" : key) {
-                case "analyzerOn": case "labelsOn": case "vuOn": case "vuMatch": e.putBoolean(key, value != 0); break;
+                case "analyzerOn": case "labelsOn": case "vuOn": case "vuMatch": case "miniMeters": case "vizAdaptive": case "anaAdaptive": e.putBoolean(key, value != 0); break;
                 case "vuOpacity": e.putInt(key, Math.max(0, Math.min(100, value))); break;
-                case "vuStyle": e.putInt(key, value == 1 ? 1 : 0); break;
+                case "vuStyle": e.putInt(key, value == 1 || value == 2 ? value : 0); break;
+                case "vizColor": e.putInt(key, value & 0xFFFFFF); break;
                 case "textSize": e.putInt("pageScale", Math.max(80, Math.min(130, value))); break;
                 default: return;
             }

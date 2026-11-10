@@ -1215,7 +1215,7 @@
   // and pages are left as they are; Wave's page is shown in place of the current one while its
   // tab is picked.
   var REPO_URL = 'https://github.com/Trevor792221/Wave';
-  var wavePanel = null, wavePath = '', dimmed = [];
+  var wavePanel = null, waveTab = '', wavePath = '', dimmed = [], tabLook = null;
   function el(tag, cls, text) {
     var e = document.createElement(tag);
     if (cls) e.className = cls;
@@ -1244,7 +1244,9 @@
       '.wv-btn{flex:none;border:0;border-radius:7px;padding:7px 12px;background:#18181b;color:#fff;font:inherit;font-size:.857em;font-weight:600;cursor:pointer}' +
       '.wv-btn[disabled]{opacity:.5}' +
       '.wv-sel{flex:none;border:0;border-radius:7px;padding:7px 10px;background:#18181b;color:#fff;font:inherit;font-size:.857em;font-weight:600}' +
-      '.wv-range{width:100%;margin:4px 0 0;accent-color:#fff}';
+      '.wv-range{width:100%;margin:4px 0 0;accent-color:#fff}' +
+      '.wv-col{-webkit-appearance:none;appearance:none;height:14px;border-radius:7px;margin:10px 0 4px}' +
+      '.wv-col::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:#fff;border:2px solid #18181b}';
     (document.head || document.documentElement).appendChild(st);
   }
   function row(title, sub) {
@@ -1278,30 +1280,86 @@
     rows.forEach(function (r) { c.appendChild(r); });
     return c;
   }
-  var ui = {};
-  function buildPanel() {
-    settingsCss();
-    var info = {};
-    try { info = JSON.parse(WaveApp.appInfo()); } catch (e) {}
-    var p = el('div');
-    p.setAttribute('data-test', 'settings-page-wave');
-
-    var s1 = section('Shuffle'), fair = row('Fair shuffle',
-      'With shuffle on, no song repeats until every song in the list has played. Holding the shuffle button switches it too.');
-    ui.fair = toggle(fairOn, function (v) { setFair(v, true); });
-    fair.appendChild(ui.fair);
-    s1.appendChild(card([fair]));
-    p.appendChild(s1);
-
-    // Each list's fair shuffle round: how many of its songs have played, with a reset.
-    var s1b = section('Played this round');
-    ui.rounds = el('div', 'wv-card');
-    s1b.appendChild(ui.rounds);
-    p.appendChild(s1b);
-    renderRounds();
-
-    // The full-screen player's cover: the spectrum analyzer and the VU meters.
-    var sa = section('Player');
+  // The colour of the analyzers and of all the meters: each can take the album art's (adaptive)
+  // or the fixed one picked with hue, saturation and brightness sliders. Reset goes back to
+  // Wave's blue.
+  var VIZ_DEFAULT = '#33C3F0';
+  function hexToHsv(hex) {
+    var v = parseInt(hex.slice(1), 16), r = (v >> 16 & 255) / 255, g = (v >> 8 & 255) / 255, b = (v & 255) / 255;
+    var mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, h = 0;
+    if (d) h = mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return [Math.round(h * 60), mx ? Math.round(d / mx * 100) : 0, Math.round(mx * 100)];
+  }
+  function hsvToHex(h, s, v) {
+    s /= 100; v /= 100;
+    var f = function (n) { var k = (n + h / 60) % 6; return Math.round(255 * (v - v * s * Math.max(0, Math.min(k, 4 - k, 1)))); };
+    return '#' + ((1 << 24) + (f(5) << 16) + (f(3) << 8) + f(1)).toString(16).slice(1).toUpperCase();
+  }
+  function colorCard(info) {
+    var anaA = info.anaAdaptive !== false, metA = info.vizAdaptive !== false, color = /^#[0-9a-f]{6}$/i.test(info.vizColor || '') ? info.vizColor : VIZ_DEFAULT;
+    var hsv = hexToHsv(color);
+    var aRow = row('Analyzer: adaptive colour', 'The analyzers take the album art\'s colours. Off: the colour below.');
+    var mRow = row('Meters: adaptive colour', 'The meters take the album art\'s colours. Off: the colour below.');
+    var pick = row('Colour', ''), swatch = el('span');
+    swatch.style.cssText = 'flex:none;width:32px;height:32px;border-radius:7px;border:1px solid rgba(255,255,255,.3)';
+    pick.appendChild(swatch);
+    var reset = el('button', 'wv-btn', 'Reset');
+    reset.type = 'button';
+    reset.style.marginLeft = '10px';
+    pick.appendChild(reset);
+    var sliders = [['Hue', 360], ['Saturation', 100], ['Brightness', 100]].map(function (d, i) {
+      var r = row(d[0], ''), sl = el('input', 'wv-range wv-col');
+      r.querySelector('.wv-s').style.display = 'none';
+      r.style.flexDirection = 'column';
+      r.style.alignItems = 'stretch';
+      sl.type = 'range'; sl.min = '0'; sl.max = String(d[1]); sl.step = '1';
+      sl.oninput = function () { hsv[i] = Number(sl.value); show(); save(); };
+      r.appendChild(sl);
+      r.sl = sl;
+      return r;
+    });
+    var saveWait = 0;
+    function save() { // after the slider stops for a moment
+      clearTimeout(saveWait);
+      saveWait = setTimeout(function () { try { WaveApp.setSetting('vizColor', parseInt(color.slice(1), 16)); } catch (e) {} }, 300);
+    }
+    function show(exact) {
+      color = exact || hsvToHex(hsv[0], hsv[1], hsv[2]);
+      W.vizConfig('vizColor', color);
+      swatch.style.background = color;
+      pick.sub.textContent = color;
+      sliders.forEach(function (r, i) { r.sl.value = String(hsv[i]); });
+      // Each slider's track shows the colours it goes through.
+      var hues = [0, 60, 120, 180, 240, 300, 360].map(function (h) { return hsvToHex(h, hsv[1], Math.max(hsv[2], 30)); });
+      sliders[0].sl.style.background = 'linear-gradient(90deg,' + hues.join(',') + ')';
+      sliders[1].sl.style.background = 'linear-gradient(90deg,' + hsvToHex(hsv[0], 0, hsv[2]) + ',' + hsvToHex(hsv[0], 100, hsv[2]) + ')';
+      sliders[2].sl.style.background = 'linear-gradient(90deg,#000,' + hsvToHex(hsv[0], hsv[1], 100) + ')';
+    }
+    function enable() {
+      var adaptive = anaA && metA; // the colour is in use while either is off
+      [pick].concat(sliders).forEach(function (r) { r.style.opacity = adaptive ? '.4' : ''; });
+      sliders.forEach(function (r) { r.sl.disabled = adaptive; });
+      reset.disabled = adaptive;
+    }
+    reset.onclick = function () { hsv = hexToHsv(VIZ_DEFAULT); show(VIZ_DEFAULT); save(); };
+    aRow.appendChild(toggle(anaA, function (v) {
+      anaA = v;
+      try { WaveApp.setSetting('anaAdaptive', v ? 1 : 0); } catch (e) {}
+      W.vizConfig('anaAdaptive', v);
+      enable();
+    }));
+    mRow.appendChild(toggle(metA, function (v) {
+      metA = v;
+      try { WaveApp.setSetting('vizAdaptive', v ? 1 : 0); } catch (e) {}
+      W.vizConfig('vizAdaptive', v);
+      enable();
+    }));
+    show(color);
+    enable();
+    return card([aRow, mRow, pick].concat(sliders));
+  }
+  // The Visuals tab: the analyzers, the meters and their colour.
+  function buildVisuals(p, info) {
     var setting = function (k, v) {
       try { WaveApp.setSetting(k, Number(v)); } catch (e) {}
       if (k === 'vuStyle' || k === 'vuOpacity') W.vizConfig(k, Number(v)); else W.vizConfig(k, !!Number(v));
@@ -1331,12 +1389,12 @@
       W.vizConfig('analyzerOpacity', v);
       if (match) vSl.set(v);
     });
-    var vOn = row('VU meters', 'A VU meter and a peak meter in the top corners of the album art');
+    var vOn = row('VU meters', 'A VU meter and a peak meter in the top corners of the album art (Deck: one display across the top)');
     vOn.appendChild(toggle(info.vuOn !== false, function (v) { setting('vuOn', v ? 1 : 0); }));
-    var vStyle = row('Meter style', 'Needle meters, or LED bars with a number');
+    var vStyle = row('Meter style', 'Needle meters, LED bars with a number, or a tape deck\'s glowing L and R level display');
     var styleSel = el('select', 'wv-sel');
-    [['0', 'Analog'], ['1', 'Digital']].forEach(function (o) { var op = el('option', '', o[1]); op.value = o[0]; styleSel.appendChild(op); });
-    styleSel.value = String(info.vuStyle === 1 ? 1 : 0);
+    [['0', 'Analog'], ['1', 'Digital'], ['2', 'Deck']].forEach(function (o) { var op = el('option', '', o[1]); op.value = o[0]; styleSel.appendChild(op); });
+    styleSel.value = String(info.vuStyle === 1 || info.vuStyle === 2 ? info.vuStyle : 0);
     styleSel.onchange = function () { setting('vuStyle', styleSel.value); };
     vStyle.appendChild(styleSel);
     vSl = slider('VU meter opacity', match ? aOp : vOp, function (v) { vOp = v; setting('vuOpacity', v); });
@@ -1348,9 +1406,40 @@
       vSl.set(v ? aOp : vOp);
       vSl.enable(!v);
     }));
+    var sa = section('Spectrum analyzer');
     sa.appendChild(card([aOn, aLabels, aSl]));
-    sa.appendChild(card([vOn, vStyle, vSl, vMatch]));
     p.appendChild(sa);
+    var vMini = row('Meters in the player bar', 'The small player at the bottom shows L and R level meters instead of the analyzer');
+    vMini.appendChild(toggle(!!info.miniMeters, function (v) { setting('miniMeters', v ? 1 : 0); }));
+    var sm = section('Meters');
+    sm.appendChild(card([vOn, vStyle, vSl, vMatch, vMini]));
+    p.appendChild(sm);
+    var sc = section('Colour');
+    sc.appendChild(colorCard(info));
+    p.appendChild(sc);
+  }
+  var ui = {};
+  function buildPanel(which) {
+    settingsCss();
+    var info = {};
+    try { info = JSON.parse(WaveApp.appInfo()); } catch (e) {}
+    var p = el('div');
+    p.setAttribute('data-test', 'settings-page-' + which);
+    if (which === 'visuals') { buildVisuals(p, info); return p; }
+
+    var s1 = section('Shuffle'), fair = row('Fair shuffle',
+      'With shuffle on, no song repeats until every song in the list has played. Holding the shuffle button switches it too.');
+    ui.fair = toggle(fairOn, function (v) { setFair(v, true); });
+    fair.appendChild(ui.fair);
+    s1.appendChild(card([fair]));
+    p.appendChild(s1);
+
+    // Each list's fair shuffle round: how many of its songs have played, with a reset.
+    var s1b = section('Played this round');
+    ui.rounds = el('div', 'wv-card');
+    s1b.appendChild(ui.rounds);
+    p.appendChild(s1b);
+    renderRounds();
 
     if (info.phone) { // phones: how big Tidal's page is drawn (the TV has Menu-hold page widths)
       var sd = section('Display');
@@ -1465,27 +1554,41 @@
   function stripActive(e) {
     e.className = String(e.className).split(/\s+/).filter(function (c) { return !/_active_/.test(c); }).join(' ');
   }
-  function showWave() {
+  // Wave's two tabs after Tidal's: Visuals (the analyzers and meters) and Wave (everything else).
+  var WAVE_TABS = [['visuals', 'Visuals'], ['wave', 'Wave']];
+  function isWaveTab(e) { return /^settings-tab--(wave|visuals)$/.test(e.getAttribute('data-test') || ''); }
+  function showWave(which) {
+    which = which || waveTab || 'wave';
     var page = document.querySelector('[data-test="settings-page"]'), tabs = tabRow();
     if (!page || !tabs) return;
-    if (!wavePanel) wavePanel = buildPanel();
+    if (wavePanel && waveTab !== which) { // from the other of Wave's tabs: Tidal's tab stays dimmed
+      if (wavePanel.parentNode) wavePanel.parentNode.removeChild(wavePanel);
+      wavePanel = null;
+      ui = {};
+      unlightWaveTabs();
+    }
+    if (!wavePanel) { wavePanel = buildPanel(which); waveTab = which; }
     wavePath = location.pathname;
     // Tidal's picked tab looks unpicked, Wave's looks picked (by style only; Tidal's own classes stay).
-    var mine = tabs.querySelector('[data-test="settings-tab--wave"]'), lit = null, plain = null, i;
+    var mine = tabs.querySelector('[data-test="settings-tab--' + which + '"]'), lit = null, plain = null, i;
     var all = tabs.querySelectorAll('a[data-test^="settings-tab--"]');
     for (i = 0; i < all.length; i++) {
-      if (all[i] === mine) continue;
+      if (isWaveTab(all[i])) continue;
       if (/_active_/.test(all[i].className)) lit = all[i]; else if (!plain) plain = all[i];
     }
     if (lit && plain && !dimmed.length) { // once: later passes would read the colours already changed
       var litSpan = lit.querySelector('span'), plainSpan = plain.querySelector('span');
-      var on = getComputedStyle(lit).borderBottomColor, onText = litSpan && getComputedStyle(litSpan).color;
-      var offText = plainSpan && getComputedStyle(plainSpan).color;
+      // Tidal's tab colours, read the first time only: going from one of Wave's tabs to the other,
+      // Tidal's tab is still fading back and would give its in-between colour.
+      if (!tabLook) tabLook = { on: getComputedStyle(lit).borderBottomColor, onText: litSpan && getComputedStyle(litSpan).color,
+        offText: plainSpan && getComputedStyle(plainSpan).color };
       lit.style.borderBottomColor = 'transparent';
-      if (litSpan) litSpan.style.color = offText;
+      if (litSpan) litSpan.style.color = tabLook.offText;
       dimmed = [lit, litSpan];
-      mine.style.borderBottomColor = on;
-      if (mine.querySelector('span')) mine.querySelector('span').style.color = onText;
+    }
+    if (tabLook && mine) {
+      mine.style.borderBottomColor = tabLook.on;
+      if (mine.querySelector('span')) mine.querySelector('span').style.color = tabLook.onText;
     }
     hideTidalPages(page);
     if (wavePanel.parentNode !== page) page.appendChild(wavePanel);
@@ -1498,18 +1601,23 @@
       pages[i].style.display = 'none';
     }
   }
+  function unlightWaveTabs() {
+    WAVE_TABS.forEach(function (t) {
+      var mine = document.querySelector('[data-test="settings-tab--' + t[0] + '"]');
+      if (!mine) return;
+      mine.style.borderBottomColor = '';
+      if (mine.querySelector('span')) mine.querySelector('span').style.color = '';
+    });
+  }
   function hideWave() {
     if (!wavePanel) return;
     if (wavePanel.parentNode) wavePanel.parentNode.removeChild(wavePanel);
     wavePanel = null;
+    waveTab = '';
     ui = {};
     dimmed.forEach(function (e) { if (e) { e.style.borderBottomColor = ''; e.style.color = ''; } });
     dimmed = [];
-    var mine = document.querySelector('[data-test="settings-tab--wave"]');
-    if (mine) {
-      mine.style.borderBottomColor = '';
-      if (mine.querySelector('span')) mine.querySelector('span').style.color = '';
-    }
+    unlightWaveTabs();
     var hidden = document.querySelectorAll('[data-wave-hidden]');
     for (var i = 0; i < hidden.length; i++) { hidden[i].style.display = ''; hidden[i].removeAttribute('data-wave-hidden'); }
   }
@@ -1518,9 +1626,10 @@
     try { softPauseTick(); } catch (e) {}
     var tabs = tabRow();
     if (!tabs) { if (wavePanel) hideWave(); return; }
-    if (!tabs.querySelector('[data-test="settings-tab--wave"]')) {
+    WAVE_TABS.forEach(function (t) {
+      if (tabs.querySelector('[data-test="settings-tab--' + t[0] + '"]')) return;
       var about = tabs.querySelector('[data-test="settings-tab--about"]'), tab = about.cloneNode(true);
-      tab.setAttribute('data-test', 'settings-tab--wave');
+      tab.setAttribute('data-test', 'settings-tab--' + t[0]);
       tab.removeAttribute('href');
       tab.setAttribute('role', 'link');
       tab.style.cursor = 'pointer';
@@ -1528,9 +1637,9 @@
       tab.style.outline = 'none';
       stripActive(tab);
       var sp = tab.querySelector('span');
-      if (sp) { stripActive(sp); sp.textContent = 'Wave'; sp.style.textDecoration = 'none'; } else tab.textContent = 'Wave';
+      if (sp) { stripActive(sp); sp.textContent = t[1]; sp.style.textDecoration = 'none'; } else tab.textContent = t[1];
       tabs.appendChild(tab);
-    }
+    });
     if (wavePanel) {
       if (location.pathname !== wavePath) hideWave(); // Back, or a link: Tidal's page again
       else showWave(); // Tidal redrew its page: keep Wave's showing
@@ -1540,10 +1649,10 @@
   addEventListener('click', function (e) {
     var t = e.target && e.target.closest && e.target.closest('[data-test^="settings-tab--"]');
     if (!t) return;
-    if (t.getAttribute('data-test') === 'settings-tab--wave') {
+    if (isWaveTab(t)) {
       e.preventDefault();
       e.stopPropagation();
-      showWave();
+      showWave(t.getAttribute('data-test').slice('settings-tab--'.length));
     } else if (wavePanel) {
       hideWave(); // one of Tidal's tabs: its page comes back
     }
@@ -1569,8 +1678,8 @@
   // - over the cover in the full-screen player: the spectrum analyzer on the cover's bottom edge
   //   (frequency labels just under the cover) and the VU and PEAK meters in its top corners;
   // - in the player bar, between the song and the buttons: a small solid analyzer while playing.
-  // Each fades in with sound and out with silence. Settings: the Wave tab's Player section.
-  var VZ = { cfg: { analyzerOn: true, labelsOn: true, vuOn: true, analyzerOpacity: 30, vuOpacity: 60, vuMatch: false, vuStyle: 0 },
+  // Each fades in with sound and out with silence. Settings: the Visuals tab.
+  var VZ = { cfg: { analyzerOn: true, labelsOn: true, vuOn: true, analyzerOpacity: 30, vuOpacity: 60, vuMatch: false, vuStyle: 0, miniMeters: false, vizAdaptive: true, anaAdaptive: true, vizColor: '#33C3F0' },
     color: { cover: '#33C3F0', mini: '#33C3F0' }, cover: null, mini: null, wanted: false, lastMini: null, miniAt: 0 };
   try {
     var vinfo = JSON.parse(WaveApp.appInfo());
@@ -1578,6 +1687,9 @@
   } catch (e) {}
   W.setVizColor = function (which, hex) { VZ.color[which === 'mini' ? 'mini' : 'cover'] = hex; };
   W.vizConfig = function (k, v) { VZ.cfg[k] = v; };
+  // The analyzers' and the meters' colours: the album art's (adaptive, switched separately for
+  // each) or the one picked in the Visuals tab.
+  function vizColor(which, analyzer) { return (analyzer ? VZ.cfg.anaAdaptive : VZ.cfg.vizAdaptive) ? VZ.color[which] : VZ.cfg.vizColor; }
   var FLOOR = -50, LABEL_HZ = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000], LABELS = ['50', '100', '200', '500', '1k', '2k', '5k', '10k', '20k'];
   function vizBars(n) {
     var b = { n: n, shown: [], peak: [], peakAt: [], level: 0 };
@@ -1643,12 +1755,12 @@
       var v = Math.pow(10, Math.max(-30, Math.min(4, m)) / 20), lo = Math.pow(10, -1), hi = Math.pow(10, 3 / 20);
       return Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
     }
-    return Math.max(0, Math.min(1, (m + 40) / 40));
+    return Math.max(0, Math.min(1, (m + 40) / 43)); // PEAK: -40 to +3 dBFS, above 0 is clipping
   }
   function stepMeter(m, rms, peak, dt, now, hearing) {
     var target = hearing ? (m.kind === 'VU' ? place('VU', rms + 18) : place('PEAK', peak)) : 0;
     if (m.kind === 'VU') m.pos += (target - m.pos) * (1 - Math.exp(-dt / 0.09));
-    else m.pos = target >= m.pos ? target : Math.max(target, m.pos - dt * 13 / 40);
+    else m.pos = target >= m.pos ? target : Math.max(target, m.pos - dt * 13 / 43);
     var value = m.kind === 'VU' ? rms + 18 : peak;
     m.reading += (Math.max(-60, value) - m.reading) * (1 - Math.exp(-dt / (m.kind === 'VU' ? 0.09 : 0.03)));
     if (m.pos >= m.held || now - m.heldAt > 1000) { m.held = m.pos; m.heldAt = now; }
@@ -1666,8 +1778,9 @@
     x.lineWidth = 0.75;
     x.stroke();
     x.clip();
-    var marks = m.kind === 'VU' ? [-20, -10, -7, -5, -3, -1, 0, 1, 2, 3] : [-40, -30, -20, -10, -6, -3, 0];
-    var redFrom = place(m.kind, m.kind === 'VU' ? 0 : -3), isRed = function (v) { return v >= (m.kind === 'VU' ? 0 : -3); };
+    var marks = m.kind === 'VU' ? [-20, -10, -7, -5, -3, -1, 0, 1, 2, 3] : [-40, -30, -20, -10, -6, -3, 0, 3];
+    // PEAK goes red only past 0 dBFS: the phone's output (after its volume) went over full scale and clipped.
+    var redFrom = place(m.kind, 0), isRed = function (v) { return m.kind === 'VU' ? v >= 0 : v > 0; };
     if (digital) {
       var pad = h * 0.1, ts = Math.max(7, h * 0.15);
       x.font = '500 ' + ts + 'px sans-serif';
@@ -1676,7 +1789,7 @@
       x.fillText(m.kind, left + pad, top + pad + ts * 0.8);
       var sv = Math.max(m.kind === 'VU' ? -20 : -40, m.reading);
       x.textAlign = 'right';
-      x.fillStyle = (m.kind === 'VU' ? sv >= 0 : sv >= -3) ? RED : 'rgba(255,255,255,.9)';
+      x.fillStyle = (m.kind === 'VU' ? sv >= 0 : sv > 0.05) ? RED : 'rgba(255,255,255,.9)';
       x.fillText((sv > 0.05 ? '+' : sv < -0.05 ? '−' : '') + Math.abs(sv).toFixed(1) + (m.kind === 'VU' ? ' VU' : ' dB'), left + w - pad, top + pad + ts * 0.8);
       var N = 24, st = top + h * 0.42, sb = top + h * 0.66, sl = left + pad, sr = left + w - pad, gap = 1.2, sw = (sr - sl - gap * (N - 1)) / N;
       var hs = Math.min(N - 1, Math.floor(m.held * N));
@@ -1722,6 +1835,86 @@
       x.strokeStyle = color;
       x.lineWidth = 1.6;
       x.beginPath(); x.moveTo(cx + nx * h * 0.45, cy + ny * h * 0.45); x.lineTo(cx + nx * (r + h * 0.02), cy + ny * (r + h * 0.02)); x.stroke();
+    }
+    x.restore();
+  }
+  // ---- The deck meters: a tape deck's glowing level display, L and R peak bars with the scale
+  // between them and an OVER mark. Peak reading in dBFS of the phone's output; OVER lights only
+  // when it goes past full scale (clipping). Android measures the mixed output, so L and R show
+  // the same level. ----
+  var DECK_DB = [-40, -35, -30, -26, -23, -20, -18, -16, -14, -12, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0];
+  var DECK_SMALL = [-40, -30, -20, -14, -10, -8, -6, -4, -3, -2, -1, 0]; // when it's narrow (the player bar)
+  var DECK_LABELS = [-40, -30, -20, -10, -6, -3, 0];
+  function deckMeter() { return { db: -96, hold: -96, holdAt: 0, overAt: -1e9, f: 0 }; }
+  function stepDeck(d, peak, dt, now, on) {
+    var v = on ? peak : -96;
+    d.db = v >= d.db ? v : Math.max(v, d.db - dt * 24); // falls 24 dB a second
+    if (d.db >= d.hold || now - d.holdAt > 1500) { d.hold = d.db; d.holdAt = now; }
+    if (on && peak > 0.05) d.overAt = now;
+    d.f += ((on ? 1 : 0) - d.f) * (1 - Math.exp(-dt / 0.25));
+    return d.f;
+  }
+  function drawDeck(x, d, left, top, w, h, alpha, now, panel, VFD) {
+    if (alpha < 0.004) return;
+    x.save();
+    x.globalAlpha = alpha;
+    x.beginPath();
+    if (x.roundRect) x.roundRect(left, top, w, h, 6); else x.rect(left, top, w, h);
+    if (panel) { // the display window (not in the player bar, which is dark already)
+      x.fillStyle = 'rgba(4,10,12,.82)';
+      x.fill();
+      x.strokeStyle = 'rgba(255,255,255,.18)';
+      x.lineWidth = 0.75;
+      x.stroke();
+    }
+    x.clip();
+    var scale = h >= 40, pad = Math.max(4, h * 0.13), ts = Math.max(7, Math.min(11, h * 0.17));
+    x.font = '600 ' + ts + 'px sans-serif';
+    var nameW = x.measureText('R').width + pad * 0.8, overW = x.measureText('OVER').width;
+    var sl = left + pad + nameW, sr = left + w - pad, dbs = (sr - sl) / (DECK_DB.length + 1) >= 4 ? DECK_DB : DECK_SMALL, N = dbs.length + 1, gap = Math.max(1, (sr - sl) / N * 0.22);
+    var segW = (sr - sl - gap * (N - 1)) / N;
+    var barH = scale ? h * 0.2 : (h - pad * 2 - pad * 0.6) / 2;
+    var rows = scale ? [top + pad, top + h - pad - barH] : [top + pad, top + h - pad - barH];
+    var over = now - d.overAt < 1000, holdI = -1, i;
+    for (i = 0; i < dbs.length; i++) if (d.hold >= dbs[i]) holdI = i;
+    x.shadowColor = VFD;
+    rows.forEach(function (ry, ri) {
+      x.shadowBlur = 0;
+      x.fillStyle = VFD;
+      x.globalAlpha = alpha * 0.9;
+      x.textAlign = 'left';
+      x.fillText(ri ? 'R' : 'L', left + pad, ry + barH / 2 + ts * 0.36);
+      for (var k = 0; k < N; k++) {
+        var isOver = k === N - 1, lit = isOver ? over : (d.db >= dbs[k] || k === holdI);
+        var col = isOver ? '#FF5A4E' : VFD;
+        x.globalAlpha = alpha * (lit ? 1 : 0.13);
+        x.shadowBlur = lit ? 6 : 0;
+        x.shadowColor = col;
+        x.fillStyle = col;
+        x.fillRect(sl + k * (segW + gap), ry, segW, barH);
+      }
+    });
+    if (scale) { // the numbers between the bars, each under its own segment
+      x.shadowBlur = 0;
+      x.globalAlpha = alpha * 0.85;
+      x.font = '500 ' + ts * 0.9 + 'px sans-serif';
+      x.textAlign = 'center';
+      var my = top + h / 2 + ts * 0.32, lastRight = -1e9;
+      var overX = sl + (N - 1) * (segW + gap) + segW / 2, overL = Math.min(overX - overW / 2, sr - overW);
+      DECK_LABELS.forEach(function (v) {
+        if (dbs.indexOf(v) < 0) return;
+        var cx = sl + dbs.indexOf(v) * (segW + gap) + segW / 2, t = String(v), tw = x.measureText(t).width;
+        if (cx - tw / 2 < lastRight + 3 || cx + tw / 2 > overL - 3) return; // no room: skipped
+        x.fillStyle = VFD;
+        x.fillText(t, cx, my);
+        lastRight = cx + tw / 2;
+      });
+      x.textAlign = 'left';
+      x.globalAlpha = alpha * (over ? 1 : 0.3);
+      x.shadowBlur = over ? 6 : 0;
+      x.shadowColor = '#FF5A4E';
+      x.fillStyle = '#FF5A4E';
+      x.fillText('OVER', overL, my);
     }
     x.restore();
   }
@@ -1801,7 +1994,7 @@
     var want = (wantCover || wantMini) && !document.hidden;
     if (want !== VZ.wanted) { VZ.wanted = want; try { WaveApp.capture(want); } catch (e) {} }
     var data = null;
-    if (want) { try { data = String(WaveApp.levels(wantCover && cfg.analyzerOn ? 40 : 0, wantMini ? 32 : 0)).split('|'); } catch (e) {} }
+    if (want) { try { data = String(WaveApp.levels(wantCover && cfg.analyzerOn ? 40 : 0, wantMini && !cfg.miniMeters ? 32 : 0)).split('|'); } catch (e) {} }
     var hearing = !!data && data[0] === '1', lowHz = data ? parseFloat(data[1]) || 46.9 : 46.9;
     var rms = data ? parseFloat(data[2]) : -96, pk = data ? parseFloat(data[3]) : -96;
     var coverDb = data && data[4] ? data[4].split(',').map(Number) : null, miniDb = data && data[5] ? data[5].split(',').map(Number) : null;
@@ -1831,8 +2024,8 @@
       var f = stepBars(cv.bars, coverDb, dt, now, hearing);
       if (cfg.analyzerOn && f > 0.003) {
         var bh = Math.max(40, Math.min(160, ah * 0.22));
-        drawBars(x, cv.bars, 0, ah - bh, aw, bh, VZ.color.cover, (cfg.analyzerOpacity / 100) * f);
-        // The frequency numbers under the cover: switched on in the Wave tab, and only where
+        drawBars(x, cv.bars, 0, ah - bh, aw, bh, vizColor('cover', true), (cfg.analyzerOpacity / 100) * f);
+        // The frequency numbers under the cover: switched on in the Visuals tab, and only where
         // nothing of Tidal's player is drawn over them (landscape: the player bar).
         x.font = '500 10px sans-serif';
         x.textAlign = 'center';
@@ -1845,14 +2038,20 @@
         }
       }
       if (cfg.vuOn) {
-        stepMeter(cv.vu, rms, pk, dt, now, hearing);
-        stepMeter(cv.pk, rms, pk, dt, now, hearing);
-        // In the top corners of the part of the cover that shows: Tidal's header can lie over the
-        // top of it (130% in landscape), so the meters go just below it.
+        // In the top of the part of the cover that shows: Tidal's header can lie over the top of
+        // it (130% in landscape), so the meters go just below it.
         var mw = aw * 0.3, mh = mw * 0.62, inset = aw * 0.035, va = ((cfg.vuMatch ? cfg.analyzerOpacity : cfg.vuOpacity) / 100) * f;
         var my = Math.min((cv.shownTop || 0) + inset, ah * 0.5);
-        drawMeter(x, cv.vu, inset, my, mw, mh, VZ.color.cover, va, cfg.vuStyle === 1);
-        drawMeter(x, cv.pk, aw - inset - mw, my, mw, mh, VZ.color.cover, va, cfg.vuStyle === 1);
+        if (cfg.vuStyle === 2) { // Deck: one display across the top, L above R
+          if (!cv.deck) cv.deck = deckMeter();
+          stepDeck(cv.deck, pk, dt, now, hearing);
+          drawDeck(x, cv.deck, inset, my, aw - inset * 2, Math.max(44, Math.min(80, aw * 0.15)), va, now, true, vizColor('cover'));
+        } else {
+          stepMeter(cv.vu, rms, pk, dt, now, hearing);
+          stepMeter(cv.pk, rms, pk, dt, now, hearing);
+          drawMeter(x, cv.vu, inset, my, mw, mh, vizColor('cover'), va, cfg.vuStyle === 1);
+          drawMeter(x, cv.pk, aw - inset - mw, my, mw, mh, vizColor('cover'), va, cfg.vuStyle === 1);
+        }
       }
     } else if (cv) {
       if (cv.canvas.parentElement) cv.canvas.parentElement.removeChild(cv.canvas);
@@ -1863,13 +2062,17 @@
     if (wantMini && footer) {
       if (!mv || !mv.canvas.isConnected || mv.canvas.parentElement !== footer) {
         if (mv && mv.canvas.parentElement) mv.canvas.parentElement.removeChild(mv.canvas);
-        mv = VZ.mini = { canvas: canvasIn(footer, 'mini'), bars: vizBars(32) };
+        mv = VZ.mini = { canvas: canvasIn(footer, 'mini'), bars: vizBars(32), m: deckMeter() };
       }
       var fr = footer.getBoundingClientRect(), r = VZ.lastMini;
       mv.canvas.style.left = (r[0] - fr.left - footer.clientLeft) + 'px';
       mv.canvas.style.top = (r[1] - fr.top - footer.clientTop) + 'px';
-      var mx = fit(mv.canvas, r[2], r[3]), mf = stepBars(mv.bars, miniDb, dt, now, hearing && playing);
-      if (mf > 0.003) drawBars(mx, mv.bars, 0, 0, r[2], r[3], VZ.color.mini, mf);
+      var mx = fit(mv.canvas, r[2], r[3]);
+      if (cfg.miniMeters) drawDeck(mx, mv.m, 0, 0, r[2], r[3], stepDeck(mv.m, pk, dt, now, hearing && playing), now, false, vizColor('mini'));
+      else {
+        var mf = stepBars(mv.bars, miniDb, dt, now, hearing && playing);
+        if (mf > 0.003) drawBars(mx, mv.bars, 0, 0, r[2], r[3], vizColor('mini', true), mf);
+      }
     } else if (mv) {
       if (mv.canvas.parentElement) mv.canvas.parentElement.removeChild(mv.canvas);
       VZ.mini = null;
