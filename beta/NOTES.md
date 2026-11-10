@@ -70,6 +70,7 @@
 | `68-wave-mobile-beta-1.0.9-test-crash.apk` | Nov 10 | 1.0.9: Test crash button in the Wave tab (Wave Beta only); Wave opens again after it |
 | `69-wave-mobile-beta-1.0.9-readable-crashes.apk` | Nov 10 | 1.0.9: Wave's names kept in the build, so crash reports say where the crash was |
 | `70-wave-mobile-beta-1.0.9-analyzer-fades.apk` | Nov 10 | 1.0.9: analyzers fade in with sound and out with silence; opacity slider for the cover analyzer (Wave tab) |
+| `71-wave-mobile-beta-1.0.9-bar-fade-fix.apk` | Nov 10 | 1.0.9: the player-bar analyzer always fades out (no disappear-and-return on stop) |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
