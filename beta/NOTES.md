@@ -62,6 +62,7 @@
 | `60-wave-mobile-beta-1.0.9-fade-steps.apk` | Nov 9 | 1.0.9 with sliders for the fade lengths and their number of volume steps |
 | `61-wave-mobile-beta-1.0.9-soft-pause-switch.apk` | Nov 9 | 1.0.9: 800 ms fades in 200 steps; Soft pause switch above Tidal's Crossfade (General tab) |
 | `62-wave-mobile-beta-1.0.9-quality-size.apk` | Nov 10 | 1.0.9: quality line size slider (Wave tab) and a glow in the quality's colour |
+| `63-wave-mobile-beta-1.0.9-quality-14sp.apk` | Nov 10 | 1.0.9: quality line at 14 sp with its glow; slider removed |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
