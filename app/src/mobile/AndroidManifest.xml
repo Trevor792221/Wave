@@ -18,6 +18,14 @@
              that say they're satellite-ready use it. There Wave turns on Tidal's adaptive streaming. -->
         <meta-data android:name="android.telephony.PROPERTY_SATELLITE_DATA_OPTIMIZED"
             android:value="${applicationId}" />
+        <!-- S Pen Air actions: press once to play or pause, twice for the next song (res/xml/spen_actions.xml). -->
+        <activity android:name=".MainActivity">
+            <intent-filter>
+                <action android:name="com.samsung.android.support.REMOTE_ACTION" />
+            </intent-filter>
+            <meta-data android:name="com.samsung.android.support.REMOTE_ACTION"
+                android:resource="@xml/spen_actions" />
+        </activity>
         <service android:name=".WaveMediaService" android:exported="true"
             tools:ignore="ExportedService">
             <intent-filter>

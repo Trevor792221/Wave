@@ -60,6 +60,14 @@ In **Settings → General**, Tidal's single audio quality is replaced by two: **
 
 While music plays, a notification shows the song, artist, cover and progress, with previous, play/pause and next. These buttons, the lock screen, headphone buttons and Android Auto all send Tidal's own player commands, the same ones its player buttons send.
 
+### Sleep timer
+
+Settings → Wave tab → **Sleep timer**: pick 30 minutes to 4 hours (in 30-minute steps) and Wave pauses the music when it's up (fading out with Soft pause), also with Wave in the background. The row shows how long is left; Off cancels it.
+
+### S Pen
+
+On Galaxy phones whose S Pen has Air actions (the pen's button works away from the screen), pressing the button once plays or pauses, and twice skips to the next song, while Wave is on screen. Switch Wave on first in Settings → Advanced features → S Pen → Air actions (Samsung leaves new apps off).
+
 ### Android Auto
 
 Wave Mobile shows up in Android Auto as a media app with play/pause, next and previous, a heart to add the song to (or remove it from) My Collection, and the song's title, artist and cover. When the phone connects to Android Auto, playback carries on by itself.

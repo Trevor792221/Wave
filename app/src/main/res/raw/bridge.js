@@ -1545,6 +1545,25 @@
     p.appendChild(s1b);
     renderRounds();
 
+    // Sleep timer: the app pauses the music after the chosen time (also in the background).
+    var ss = section('Sleep timer');
+    var sleep = row('Sleep timer', ''), sleepSel = el('select', 'wv-sel');
+    var sleepTimes = [[0, 'Off']]; // 30 min to 4 hours, every 30 min
+    for (var sm = 30; sm <= 240; sm += 30) sleepTimes.push([sm, sm < 60 ? '30 min' : (sm / 60) + (sm === 60 ? ' hour' : ' hours')]);
+    sleepTimes.forEach(function (o) {
+      var op = el('option', '', o[1]); op.value = String(o[0]); sleepSel.appendChild(op);
+    });
+    sleepSel.onchange = function () {
+      sleepChoice = sleepSel.value;
+      try { WaveApp.setSleepTimer(Number(sleepSel.value)); } catch (e) {}
+      setTimeout(showSleep, 100);
+    };
+    sleep.appendChild(sleepSel);
+    ui.sleep = { row: sleep, sel: sleepSel };
+    ss.appendChild(card([sleep]));
+    p.appendChild(ss);
+    showSleep();
+
     var sc = section('Crash reports');
     var cr = row('Send crash reports automatically',
       'After a crash, the next time Wave opens it posts the details (app version, Android version, phone model and the error) ' +
@@ -1556,6 +1575,25 @@
 
     return p;
   }
+  // The sleep timer's line: how long until it pauses, kept up to date while the Wave tab shows.
+  var sleepTick = 0, sleepChoice = '0';
+  function showSleep() {
+    clearTimeout(sleepTick);
+    var s = ui.sleep;
+    if (!s || !s.row.isConnected) return;
+    var left = 0;
+    try { left = Number(WaveApp.sleepLeft()) || 0; } catch (e) {}
+    if (left > 0) {
+      var m = Math.ceil(left / 60000);
+      s.sel.value = sleepChoice;
+      s.row.sub.textContent = 'Pauses the music in ' + (m >= 60 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : m + ' min');
+    } else {
+      s.row.sub.textContent = 'Pauses the music after the time you pick, also with Wave in the background';
+      s.sel.value = '0';
+    }
+    sleepTick = setTimeout(showSleep, 15000);
+  }
+
   // Developer options: hidden until the version is tapped 5 times (Updates tab).
   function devSlider(label, unit, min, max, step, value, change) {
     var r = row(label + ': ' + value + unit, ''), t = r.querySelector('.wv-t');

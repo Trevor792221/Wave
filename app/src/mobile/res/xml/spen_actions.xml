@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- S Pen Air actions (Samsung): press the pen's button once to play or pause, twice for the next
+     song. Samsung sends them as media keys to Wave while it's on screen; switch Wave on in
+     Settings, Advanced features, S Pen, Air actions. -->
+<remote-actions version="1.2" actionset_label="@string/spen_actions">
+    <action id="play_pause" label="@string/spen_play_pause" priority="1" trigger_key="MEDIA_PLAY_PAUSE">
+        <preference name="gesture" value="click" />
+        <preference name="button_only" value="true" />
+    </action>
+    <action id="next" label="@string/spen_next" priority="2" trigger_key="MEDIA_NEXT">
+        <preference name="gesture" value="double_click" />
+        <preference name="button_only" value="true" />
+    </action>
+</remote-actions>

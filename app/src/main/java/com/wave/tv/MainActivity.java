@@ -676,6 +676,13 @@ public final class MainActivity extends Activity {
     }
 
     /** Runs a player command inside the page (works in the background too). */
+    // ---------- Sleep timer (Wave tab) ----------
+    private volatile long sleepAt; // uptimeMillis when it pauses, 0: off
+    private final Runnable sleepNow = () -> {
+        sleepAt = 0;
+        command("pause"); // soft pause fades it out when that's on
+    };
+
     void command(String c) {
         // Wake the page fully, as if it were on screen, so Tidal can start the song even after a
         // phone call paused it; it goes back to sleep if nothing plays.
@@ -908,6 +915,27 @@ public final class MainActivity extends Activity {
                     placeQuality();
                 }
             });
+        }
+
+        /** Sleep timer: pause after this many minutes (0: off). Kept by the app, not the page,
+         *  whose timers stop while Wave is in the background. */
+        @JavascriptInterface
+        public void setSleepTimer(int minutes) {
+            handler.post(() -> {
+                handler.removeCallbacks(sleepNow);
+                sleepAt = 0;
+                if (minutes > 0) {
+                    sleepAt = android.os.SystemClock.uptimeMillis() + Math.min(minutes, 24 * 60) * 60000L;
+                    handler.postAtTime(sleepNow, sleepAt);
+                }
+            });
+        }
+
+        /** Milliseconds until the sleep timer pauses (0: off). */
+        @JavascriptInterface
+        public long sleepLeft() {
+            long at = sleepAt;
+            return at == 0 ? 0 : Math.max(0, at - android.os.SystemClock.uptimeMillis());
         }
 
         @JavascriptInterface
