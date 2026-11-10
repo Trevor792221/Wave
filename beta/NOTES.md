@@ -95,6 +95,7 @@
 | `93-wave-mobile-beta-1.0.9-meter-colour.apk` | Nov 10 | Adaptive colour for the deck meters too; a fixed colour (hue, saturation, brightness, Reset) for the analyzers and all meters |
 | `94-wave-mobile-beta-1.0.9-adaptive-separate.apk` | Nov 10 | Adaptive colour switched separately for the analyzers and for the meters (one shared fixed colour) |
 | `95-wave-mobile-beta-1.0.9-visuals-tab.apk` | Nov 10 | A Visuals tab in Settings with the analyzer, meter and colour settings (moved from the Wave tab) |
+| `96-wave-mobile-beta-1.0.9-tab-highlight.apk` | Nov 10 | Going between the Visuals and Wave tabs keeps the picked tab's text highlighted |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
