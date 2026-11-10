@@ -98,6 +98,7 @@
 | `96-wave-mobile-beta-1.0.9-tab-highlight.apk` | Nov 10 | Going between the Visuals and Wave tabs keeps the picked tab's text highlighted |
 | `97-wave-mobile-beta-1.1.0-satellite.apk` | Nov 10 | 1.1.0 + satellite data: Wave declares itself satellite-ready (T-Satellite), detects satellite and uses its own "On satellite" quality (starts at Low 96 kbps) |
 | `98-wave-mobile-beta-1.1.0-developer-options.apk` | Nov 10 | Satellite data moved into Developer options (tap the version 5 times in the Wave tab); off, satellite counts as mobile data |
+| `99-wave-mobile-beta-1.1.0-satellite-adaptive.apk` | Nov 10 | Satellite: no setting or card; it uses the mobile data quality with Tidal's adaptive streaming always on (put back as it was afterwards) |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
