@@ -1731,6 +1731,28 @@
     var hidden = document.querySelectorAll('[data-wave-hidden]');
     for (var i = 0; i < hidden.length; i++) { hidden[i].style.display = ''; hidden[i].removeAttribute('data-wave-hidden'); }
   }
+  // Six tabs don't fit a phone at a big Text size: the row first draws its tabs closer together
+  // (down to half the gap), and if that's still too wide it scrolls sideways, with the picked tab
+  // brought into view.
+  var tabGap = null;
+  function fitTabs(tabs) {
+    var cs = getComputedStyle(tabs);
+    if (tabGap === null) tabGap = parseFloat(cs.columnGap) || 0;
+    if (tabs.style.overflowX !== 'auto') {
+      tabs.style.overflowX = 'auto';
+      tabs.style.overflowY = 'hidden';
+      tabs.style.scrollbarWidth = 'none';
+      tabs.style.flexWrap = 'nowrap';
+      for (var c = tabs.firstElementChild; c; c = c.nextElementSibling) { c.style.flexShrink = '0'; c.style.whiteSpace = 'nowrap'; }
+    }
+    var over = tabs.scrollWidth - tabs.clientWidth, n = Math.max(1, tabs.children.length - 1);
+    var gap = tabGap ? Math.max(tabGap / 2, Math.min(tabGap, (parseFloat(cs.columnGap) || tabGap) - over / n)) : 0;
+    if (tabGap && Math.abs(gap - (parseFloat(cs.columnGap) || 0)) > 0.5) tabs.style.columnGap = gap + 'px';
+    var picked = tabs.querySelector('[data-test="settings-tab--' + (waveTab || '') + '"]');
+    if (picked && picked.getBoundingClientRect().right > tabs.getBoundingClientRect().right + 1) {
+      tabs.scrollLeft += picked.getBoundingClientRect().right - tabs.getBoundingClientRect().right + 4;
+    }
+  }
   function settingsTick() {
     try { qualityTick(); } catch (e) {}
     try { softPauseTick(); } catch (e) {}
@@ -1750,6 +1772,7 @@
       if (sp) { stripActive(sp); sp.textContent = t[1]; sp.style.textDecoration = 'none'; } else tab.textContent = t[1];
       tabs.appendChild(tab);
     });
+    fitTabs(tabs);
     if (wavePanel) {
       if (location.pathname !== wavePath) hideWave(); // Back, or a link: Tidal's page again
       else showWave(); // Tidal redrew its page: keep Wave's showing
