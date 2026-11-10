@@ -85,6 +85,7 @@
 | `83-wave-mobile-beta-1.0.9-embedded-meters.apk` | Nov 10 | 1.0.9: analyzers and VU meters drawn inside Tidal's page (its controls on top); app only measures |
 | `84-wave-mobile-beta-1.0.9-frequency-numbers.apk` | Nov 10 | 1.0.9: frequency numbers hidden where Tidal's player covers them, and a switch for them |
 | `85-wave-mobile-beta-1.0.9-cover-canvas-fix.apk` | Nov 10 | 1.0.9: cover canvas sits next to the cover (meters show at 130% landscape); numbers hidden when cut off by the screen edge |
+| `86-wave-mobile-beta-1.0.9-meters-below-header.apk` | Nov 10 | 1.0.9: meters placed below Tidal's header where it covers the top of the cover (130% landscape) |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
