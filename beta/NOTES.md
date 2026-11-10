@@ -76,6 +76,7 @@
 | `74-wave-mobile-beta-1.0.9-digital-meters.apk` | Nov 10 | 1.0.9: digital (LED bar) VU meters and a Meter style setting |
 | `75-wave-mobile-beta-1.0.9-text-size.apk` | Nov 10 | 1.0.9: Tidal's text no longer enlarged by the phone's font size (rows don't overlap) |
 | `76-wave-mobile-beta-1.0.9-text-size-slider.apk` | Nov 10 | 1.0.9: Text size slider (Wave tab → Display) scaling Tidal's whole page |
+| `77-wave-mobile-beta-1.0.9-text-size-fit.apk` | Nov 10 | 1.0.9: Text size locks the zoom so the page fills the screen; resets to 100% if it ever doesn't fit (the previous build's setting is dropped) |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
