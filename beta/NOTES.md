@@ -107,6 +107,7 @@
 | `105-wave-mobile-beta-1.1.2-back-button.apk` | Nov 10 | Back closes the full-screen player; on the first page Wave goes to the background and keeps playing instead of closing |
 | `106-wave-mobile-beta-1.1.2-every-frame.apk` | Nov 10 | Analyzers read Android's newest capture every screen frame (not ~20 updates a second) |
 | `107-wave-mobile-beta-1.1.3-s-pen.apk` | Nov 10 | S Pen Air actions: press once to play or pause, twice for the next song (switch Wave on in the S Pen Air actions settings) |
+| `108-wave-mobile-beta-1.1.3-sleep-timer.apk` | Nov 10 | Sleep timer in the Wave tab (15 min to 2 hours; pauses also in the background); S Pen kept |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
