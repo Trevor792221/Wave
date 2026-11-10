@@ -82,6 +82,7 @@
 | `80-wave-mobile-beta-1.0.9-landscape-bar.apk` | Nov 10 | 1.0.9: in landscape the analyzer sits above Tidal's player bar (which covers the cover's bottom), so it and the meters show |
 | `81-wave-mobile-beta-1.0.9-landscape-under-controls.apk` | Nov 10 | 1.0.9: landscape analyzer on the cover's bottom edge, leaving out the player bar's controls (drawn under them, over the art) |
 | `82-wave-mobile-beta-1.0.9-landscape-own-controls.apk` | Nov 10 | 1.0.9: landscape: Tidal's play controls invisible (still tappable) and redrawn by Wave over the analyzer |
+| `83-wave-mobile-beta-1.0.9-embedded-meters.apk` | Nov 10 | 1.0.9: analyzers and VU meters drawn inside Tidal's page (its controls on top); app only measures |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
