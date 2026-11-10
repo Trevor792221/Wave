@@ -5,6 +5,9 @@ plugins { id("com.android.application") }
 // app id (….beta), so it installs alongside an official release.
 val releaseKeystore: String? = System.getenv("WAVE_KEYSTORE_FILE")
 val beta = releaseKeystore == null || System.getenv("WAVE_BETA") == "1"
+// A numbered test build (the test-builds branch's beta/<number>-….apk): -PwaveTestBuild=<number>.
+// Wave Beta updates itself to higher numbers from there. 0: not numbered (no self-updates).
+val testBuild = (findProperty("waveTestBuild") as String?)?.toIntOrNull() ?: 0
 
 android {
     namespace = "com.wave.tv"
@@ -16,6 +19,7 @@ android {
         if (beta) applicationIdSuffix = ".beta"
         manifestPlaceholders["appLabel"] = if (beta) "Wave Beta" else "Wave"
         buildConfigField("boolean", "BETA", beta.toString())
+        buildConfigField("int", "TEST_BUILD", testBuild.toString())
     }
     // Two apps from one codebase: Wave (TV, com.wave.tv) and Wave Mobile (phones and Android
     // Auto, com.wave.mobile). BuildConfig.TV tells the shared code which one it is. Each has its

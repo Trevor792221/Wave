@@ -829,8 +829,8 @@ public final class MainActivity extends Activity {
         @JavascriptInterface
         public String appInfo() {
             try {
-                return new org.json.JSONObject().put("name", Updater.appName()).put("version", BuildConfig.VERSION_NAME)
-                        .put("auto", prefs.getBoolean("autoUpdate", true))
+                return new org.json.JSONObject().put("name", Updater.appName()).put("version", BuildConfig.VERSION_NAME + (BuildConfig.TEST_BUILD > 0 ? " (" + Updater.testName(BuildConfig.TEST_BUILD) + ")" : ""))
+                        .put("auto", prefs.getBoolean("autoUpdate", !BuildConfig.BETA))
                         .put("crashAuto", prefs.getBoolean("crashAuto", false))
                         .put("analyzerOpacity", prefs.getInt("analyzerOpacity", 30))
                         .put("analyzerOn", prefs.getBoolean("analyzerOn", true))
@@ -1057,7 +1057,7 @@ public final class MainActivity extends Activity {
 
     /** Once a day, the first time Wave opens: look for an update and offer it. */
     private void autoCheckForUpdates() {
-        if (BuildConfig.BETA || !prefs.getBoolean("autoUpdate", true)) return; // test builds don't update
+        if (!prefs.getBoolean("autoUpdate", !BuildConfig.BETA)) return; // off by default in Wave Beta
         String today = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date());
         if (today.equals(prefs.getString("updateCheckedOn", ""))) return;
         prefs.edit().putString("updateCheckedOn", today).apply();

@@ -20,9 +20,10 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 /**
- * Updates from the GitHub releases: finds the newest release of this app (tags v<version> for
- * Wave for TV, mobile-v<version> for Wave Mobile) and installs its APK with Android's own
- * installer, which asks before installing.
+ * Updates from GitHub: finds the newest release of this app (tags v<version> for Wave for TV,
+ * mobile-v<version> for Wave Mobile) and installs its APK with Android's own installer, which
+ * asks before installing. Wave Beta updates from the numbered test builds on the test-builds
+ * branch instead (beta/<number>-wave[-mobile]-beta-….apk), signed with the same key as it.
  */
 final class Updater {
     static final String REPO = "Trevor792221/Wave";
@@ -42,6 +43,11 @@ final class Updater {
         activity = a;
     }
 
+    /** The test build's number as shown ("test 110"), or the version for releases. */
+    static String testName(int n) {
+        return "test " + n;
+    }
+
     static String appName() {
         return (BuildConfig.TV ? "Wave" : "Wave Mobile") + (BuildConfig.BETA ? " Beta" : "");
     }
@@ -58,11 +64,15 @@ final class Updater {
         new Thread(() -> {
             String state, text;
             try {
-                find();
-                if (BuildConfig.BETA) { // a test build: releases install as the official app, not over it
+                if (BuildConfig.BETA) findTestBuild(); else find();
+                if (BuildConfig.BETA && BuildConfig.TEST_BUILD == 0) { // not numbered: can't tell what's newer
                     state = "latest";
-                    text = (newest == null ? "Test build." : "Test build. Newest release: " + newest + ".")
-                            + " Test builds don't update themselves.";
+                    text = "Test build without a number: install a numbered test build to get updates.";
+                } else if (BuildConfig.BETA) {
+                    boolean newer = newest != null && Integer.parseInt(newest) > BuildConfig.TEST_BUILD;
+                    state = newer ? "available" : "latest";
+                    text = newer ? appName() + " " + testName(Integer.parseInt(newest)) + " is available"
+                            : "You have the newest test build (" + testName(BuildConfig.TEST_BUILD) + ")";
                 } else if (newest != null && compare(newest, BuildConfig.VERSION_NAME) > 0) {
                     state = "available";
                     text = appName() + " " + newest + " is available";
@@ -80,6 +90,33 @@ final class Updater {
                 l.status(s, t);
             });
         }).start();
+    }
+
+    /** Wave Beta: the highest-numbered test build of this app on the test-builds branch. */
+    private void findTestBuild() throws Exception {
+        String apk = BuildConfig.TV ? "-wave-beta-" : "-wave-mobile-beta-";
+        JSONArray files = new JSONArray(get("https://api.github.com/repos/" + REPO + "/contents/beta?ref=test-builds"));
+        newest = null;
+        newestUrl = null;
+        int best = 0;
+        for (int i = 0; i < files.length(); i++) {
+            JSONObject f = files.getJSONObject(i);
+            String name = f.optString("name");
+            int dash = name.indexOf('-');
+            if (dash < 1 || !name.endsWith(".apk") || !name.startsWith(apk, dash)) continue;
+            int n;
+            try {
+                n = Integer.parseInt(name.substring(0, dash));
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            String url = f.optString("download_url");
+            if (n > best && url.startsWith("https://")) {
+                best = n;
+                newest = String.valueOf(n);
+                newestUrl = url;
+            }
+        }
     }
 
     private void find() throws Exception {
@@ -111,7 +148,8 @@ final class Updater {
     void install(Listener l) {
         if (busy || newestUrl == null) return;
         busy = true;
-        l.status("downloading", "Downloading " + appName() + " " + newest + "…");
+        String what = appName() + " " + (BuildConfig.BETA ? testName(Integer.parseInt(newest)) : newest);
+        l.status("downloading", "Downloading " + what + "…");
         watchResult(l);
         String url = newestUrl;
         new Thread(() -> {
@@ -135,7 +173,7 @@ final class Updater {
                 int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
                 session.commit(PendingIntent.getBroadcast(activity, 0, done, flags).getIntentSender());
                 session.close();
-                main.post(() -> l.status("installing", "Installing " + appName() + " " + newest + "…"));
+                main.post(() -> l.status("installing", "Installing " + what + "…"));
             } catch (Exception e) {
                 if (session != null) session.abandon();
                 main.post(() -> {
@@ -164,9 +202,9 @@ final class Updater {
                 if (status == PackageInstaller.STATUS_SUCCESS) {
                     l.status("latest", "Updated");
                 } else if (status == PackageInstaller.STATUS_FAILURE_ABORTED) {
-                    l.status("available", appName() + " " + newest + " is available");
+                    l.status("available", appName() + " " + (BuildConfig.BETA ? testName(Integer.parseInt(newest)) : newest) + " is available");
                 } else if (status == PackageInstaller.STATUS_FAILURE_CONFLICT || status == PackageInstaller.STATUS_FAILURE_INCOMPATIBLE) {
-                    l.status("error", "This Wave is a test build signed with a different key: uninstall it, then install the update from GitHub.");
+                    l.status("error", "This update is signed with a different key than the Wave installed: uninstall it, then install the update from GitHub.");
                 } else {
                     l.status("error", "Android didn't install the update (" + status + ").");
                 }

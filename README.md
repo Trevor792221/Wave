@@ -125,7 +125,7 @@ Tidal's **Settings** page gets a **Wave** tab next to General, Account and About
 - **Updates**: *Check now* looks for a newer release of the app on GitHub and installs it with Android's installer (Android asks to confirm, and the first time asks to allow Wave to install apps). With **Check automatically** on, Wave checks once a day, the first time it's opened, and offers the update.
 - **License**: the GPL-3.0 terms in short, with a link to the source code and the full license.
 
-Test builds (Wave Beta) don't update themselves; the official app updates as usual.
+Wave Beta updates from the numbered test builds on the `test-builds` branch (`beta/<number>-wave-mobile-beta-….apk`): **Check now** finds a higher number and installs it. Its automatic check starts off; switch on **Check automatically** for a daily check. Only numbered test builds (built with `-PwaveTestBuild=<number>`) can update; the version line shows the number, e.g. `1.1.4 (test 111)`.
 
 ## The song where you left it
 
@@ -163,11 +163,11 @@ The APKs are written to `app/build/outputs/apk/tv/release/wave-<version>.apk` (T
 
 Each app has its own `versionName` and `versionCode`, in its flavor in `app/build.gradle.kts`. When a change to that file lands on `main`, the **Tag and release** workflow, for each app whose version has no release yet, creates its tag (`v<version>` for TV, `mobile-v<version>` for Wave Mobile), builds its APK signed with the release key (from the repository secrets) and publishes it as a GitHub release. It also keeps each app's download button pointing at its newest APK (the `latest-tv` and `latest-mobile` releases). An app whose version didn't change isn't rebuilt.
 
-Local builds without the release key are test builds: they're called **Wave Beta**, have their own app id (`com.wave.tv.beta`, `com.wave.mobile.beta`), are signed with the debug key and named `wave-beta-<version>.apk` / `wave-mobile-beta-<version>.apk`. They install alongside the official app (with their own sign-in) and don't update themselves.
+Local builds without the release key are test builds: they're called **Wave Beta**, have their own app id (`com.wave.tv.beta`, `com.wave.mobile.beta`), are signed with the debug key and named `wave-beta-<version>.apk` / `wave-mobile-beta-<version>.apk`. They install alongside the official app (with their own sign-in); numbered ones update from the test-builds branch (above).
 
 ## Beta
 
-Test builds are on the [**Beta** page](https://github.com/Trevor792221/Wave/releases/tag/beta): `wave-beta-<version>.apk` (TV) and `wave-mobile-beta-<version>.apk` (phone), one per version. They're called **Wave Beta** and have their own app id, so they install alongside the official apps (with their own Tidal sign-in), and they don't update themselves. The **Beta and probes** workflow adds them when the app changes on `main`.
+Test builds are on the [**Beta** page](https://github.com/Trevor792221/Wave/releases/tag/beta): `wave-beta-<version>.apk` (TV) and `wave-mobile-beta-<version>.apk` (phone), one per version. They're called **Wave Beta** and have their own app id, so they install alongside the official apps (with their own Tidal sign-in). These are signed with the release key, so they don't update from (or to) the debug-key test builds on the test-builds branch. The **Beta and probes** workflow adds them when the app changes on `main`.
 
 ## Probes
 

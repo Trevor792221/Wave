@@ -54,7 +54,7 @@
         st = { base: volumeDesc.get.call(el), mult: 1, fade: null, newTrack: true };
         states.set(el, st);
         el.addEventListener('loadstart', function () { st.newTrack = true; st.resumeIn = false; stopFade(el); setMult(el, 1); });
-        el.addEventListener('playing', function () { if (st.newTrack || el.currentTime <= 1) st.newTrack = false; });
+        el.addEventListener('playing', function () { if (st.newTrack || el.currentTime <= 1) st.newTrack = false; st.playingAt = Date.now(); });
       }
       return st;
     }
@@ -120,6 +120,9 @@
     function pausePartners(el) {
       players.forEach(function (o) {
         if (o === el || o.paused || !isSong(o)) return;
+        // Just started: that's the next song taking over (Tidal plays it on another player),
+        // not a song to pause along with this one.
+        if (Date.now() - (state(o).playingAt || 0) < 4000) return;
         var so = state(o);
         so.pausedWith = el;
         if (so.fade && so.fade.kind === 'pause') return;
@@ -130,6 +133,9 @@
       var st = state(this);
       players.add(this);
       if (!softOn()) { stopFade(this); setMult(this, 1); return realPause.call(this); }
+      // At the very end of a song Tidal stops it as the next one starts: a handover, not the
+      // listener pausing. It stops at once, and the next song is left playing.
+      if (isSong(this) && this.duration - this.currentTime < 2) { stopFade(this); return realPause.call(this); }
       if (!this.paused && audible(this) && st.mult >= 0.05) pausePartners(this);
       if (st.fade && st.fade.kind === 'pause') return undefined; // already fading out
       if (this.paused || this.ended || !audible(this) || !isSong(this) || this.currentTime < 0.5 || st.mult < 0.05) {
@@ -1476,7 +1482,7 @@
   // and the license.
   function buildUpdates(p, info) {
     var s2 = section('Updates');
-    var ver = row((info.name || 'Wave') + ' ' + (info.version || ''), 'Updates come from Wave\'s releases on GitHub.');
+    var ver = row((info.name || 'Wave') + ' ' + (info.version || ''), info.beta ? 'Updates come from the numbered test builds on GitHub.' : 'Updates come from Wave\'s releases on GitHub.');
     ui.status = ver.sub;
     ui.check = el('button', 'wv-btn', 'Check now');
     ui.check.type = 'button';
