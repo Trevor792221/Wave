@@ -109,6 +109,7 @@
 | `107-wave-mobile-beta-1.1.3-s-pen.apk` | Nov 10 | S Pen Air actions: press once to play or pause, twice for the next song (switch Wave on in the S Pen Air actions settings) |
 | `108-wave-mobile-beta-1.1.3-sleep-timer.apk` | Nov 10 | Sleep timer in the Wave tab (15 min to 2 hours; pauses also in the background); S Pen kept |
 | `109-wave-mobile-beta-1.1.3-sleep-4h.apk` | Nov 10 | Sleep timer: 30 min to 4 hours in 30-minute steps |
+| `110-wave-mobile-beta-1.1.4-song-handover.apk` | Nov 10 | Soft pause no longer pauses the next song when Tidal hands over at the end of a song (music stopping between songs) |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
