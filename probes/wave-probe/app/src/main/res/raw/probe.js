@@ -4,7 +4,7 @@
 (function () {
   if (window.__probe) return;
   var P = window.__probe = { actions: [], player: [] }, store = null;
-  var PLAYER = /^(playQueue|playbackControls|player|activePlayer|remotePlayback|cloudQueue|cloudQueueV2)\/|favou?rite|collection|tidalApi\/(executeMutation|mutations)/i;
+  var PLAYER = /^(playQueue|playbackControls|player|activePlayer|remotePlayback|cloudQueue|cloudQueueV2)\/|favou?rite|collection|tidalApi\/(executeMutation|mutations)|^settings\/|quality/i;
 
   function isStore(v) {
     return v && typeof v === 'object' && typeof v.getState === 'function' &&
@@ -48,7 +48,7 @@
             var rest = {};
             for (var k in a) if (k !== 'type') rest[k] = a[k];
             P.player.push(new Date().toTimeString().slice(0, 8) + '  ' + a.type.slice(0, 80) + '  ' +
-              (/FAVORITE/.test(a.type) ? deep(rest, 0) : shape(rest, 0)));
+              (/FAVORITE|^settings\/|QUALITY/i.test(a.type) ? deep(rest, 0) : shape(rest, 0)));
             if (P.player.length > 60) P.player.shift();
           }
         } else if (typeof a === 'function') {
@@ -64,9 +64,17 @@
     };
   }
   setInterval(attach, 2000);
+  // The Low quality's 96 / 320 kbps choice is a list, not a click.
+  addEventListener('change', function (e) {
+    var t = e.target;
+    if (t && t.getAttribute && /^audio-quality/.test(t.getAttribute('data-test') || ''))
+      P.player.push(new Date().toTimeString().slice(0, 8) + '  SETTING CHANGED: ' + t.getAttribute('data-test') + ' = ' + String(t.value).slice(0, 30));
+  }, true);
   // Heart presses (Add to / Remove from My Collection), to tie the actions to them.
   var heartAt = 0;
   addEventListener('click', function (e) {
+    var q = e.target && e.target.closest && e.target.closest('[data-test^="audio-quality"],[data-test^="switch-"]');
+    if (q) P.player.push(new Date().toTimeString().slice(0, 8) + '  SETTING PRESSED: ' + q.getAttribute('data-test'));
     var b = e.target && e.target.closest && e.target.closest('[data-test*="favorite"],[aria-label*="Collection"]');
     if (b) { heartAt = Date.now(); P.player.push(new Date().toTimeString().slice(0, 8) + '  HEART PRESSED: ' + (b.getAttribute('data-test') || '') + ' ' + (b.getAttribute('aria-label') || '') + ' checked=' + b.getAttribute('aria-checked')); }
   }, true);
@@ -157,11 +165,25 @@
       out.push('settings content, built (from ^3):');
       tree(chain[Math.min(3, chain.length - 1)], 0, 6, out, '  ');
     }
-    var sw = document.querySelector('[role="switch"],input[type="checkbox"]');
-    if (sw) {
-      out.push('a toggle and its row:');
-      var row = sw; for (var k3 = 0; k3 < 3 && row.parentElement; k3++) row = row.parentElement;
-      tree(row, 0, 5, out, '  ');
+    // The song rows: the first one, how it's built, and the panels it sits in (which is cut off).
+    out.push('size: layout ' + document.documentElement.clientWidth + ' px, visible ' + Math.round(window.visualViewport ? visualViewport.width : innerWidth) +
+      ' px, zoom ' + (window.visualViewport ? visualViewport.scale.toFixed(2) : '?') + ', scrollWidth ' + document.documentElement.scrollWidth);
+    var tr = document.querySelector('[data-test="tracklist-row"]');
+    if (tr) {
+      out.push('a song row, built:');
+      tree(tr, 0, 4, out, '  ');
+      out.push('the panels around it:');
+      for (var up = tr.parentElement, k4 = 0; up && up !== document.body && k4 < 10; up = up.parentElement, k4++) out.push('  ^' + (k4 + 1) + ' ' + desc(up, true));
+    } else out.push('no song rows on this page');
+    // Every switch on the page: its markers and the elements around it (its row and card).
+    var sws = document.querySelectorAll('[data-test^="switch-"],[role="switch"],input[type="checkbox"]');
+    for (var w = 0; w < sws.length && w < 20; w++) {
+      out.push('switch ' + (w + 1) + ': ' + desc(sws[w], false));
+      var up = sws[w], chain = [];
+      for (var k3 = 0; k3 < 5 && up.parentElement; k3++) { up = up.parentElement; chain.push(up); }
+      chain.forEach(function (x, i) { out.push('  ^' + (i + 1) + ' ' + desc(x, i >= 1)); });
+      out.push('  its row and card, built (from ^3):');
+      tree(chain[Math.min(2, chain.length - 1)], 0, 4, out, '    ');
     }
     return out.join('\n');
   }

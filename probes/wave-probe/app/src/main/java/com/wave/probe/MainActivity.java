@@ -69,6 +69,11 @@ public final class MainActivity extends Activity {
         status.setTextColor(Color.WHITE);
         status.setPadding(16, 0, 16, 0);
         bar.addView(status, new LinearLayout.LayoutParams(0, -2, 1));
+        bar.addView(button("Size", v -> {
+            sizeIndex = (sizeIndex + 1) % SIZES.length;
+            applySize();
+            Toast.makeText(this, "Text size " + SIZES[sizeIndex] + "%", Toast.LENGTH_SHORT).show();
+        }));
         bar.addView(button("Snapshot", v -> snapshot()));
         bar.addView(button("Share log", v -> share()));
         bar.addView(button("Clear", v -> {
@@ -84,6 +89,7 @@ public final class MainActivity extends Activity {
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
+        s.setTextZoom(100); // as Wave: the phone's font size doesn't enlarge the page
         s.setDatabaseEnabled(true);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setUseWideViewPort(true);
@@ -110,9 +116,7 @@ public final class MainActivity extends Activity {
 
             @Override
             public void onPageFinished(WebView v, String url) {
-                v.evaluateJavascript("(function(w){var m=document.querySelector('meta[name=viewport]');"
-                        + "if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}"
-                        + "m.content='width=device-width,initial-scale=1';})(0)", null); // as Wave Mobile
+                applySize(); // as Wave Mobile, at its Text size
                 v.evaluateJavascript(probeJs, null);
             }
         });
@@ -176,6 +180,26 @@ public final class MainActivity extends Activity {
         int n;
         synchronized (requests) { n = requests.size(); }
         status.setText(n + " kinds of request, " + snapshotCount + " snapshots");
+    }
+
+    // Wave Mobile's Text size, the same way: the page laid out narrower and zoomed to fill the screen.
+    private static final int[] SIZES = {100, 115, 130, 85};
+    private int sizeIndex;
+
+    private void applySize() {
+        int pct = SIZES[sizeIndex];
+        String content;
+        if (pct == 100) {
+            content = "width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1";
+        } else {
+            float dp = web.getWidth() / getResources().getDisplayMetrics().density;
+            String sc = String.format(java.util.Locale.US, "%.2f", pct / 100f);
+            content = "width=" + Math.round(dp * 100f / pct) + ",initial-scale=" + sc + ",minimum-scale=" + sc
+                    + ",maximum-scale=" + sc + ",user-scalable=no";
+        }
+        web.evaluateJavascript("(function(c){var m=document.querySelector('meta[name=viewport]');"
+                + "if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}"
+                + "m.content=c;})('" + content + "')", null);
     }
 
     private void snapshot() {

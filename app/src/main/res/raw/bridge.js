@@ -18,6 +18,155 @@
     ms.setActionHandler.__wave = true;
   }
 
+  // Pause and play fade instead of cutting (from TIDAL+'s audio.js, in the Tidal- repo): a short
+  // fade out before the song stops, then a moment for the sound already handed to Android to
+  // play out, and a fade back in when it starts again, however it was paused or played (Tidal's
+  // buttons, the notification, headphones, Android Auto). Cutting the sound off mid-wave clicks,
+  // more so with Wave's analyzer in Android's effects chain. Tidal never sees the fades: reading
+  // the volume gives what Tidal set. Installed once (a re-run of this script leaves it be).
+  (function () {
+    var proto = HTMLMediaElement.prototype;
+    if (proto.pause.__waveFade) return;
+    var OUTPUT_TAIL_MS = 250, STEP_MS = 8;
+    // 0.8 s each way in 200 even volume steps (one every 4 ms: as smooth as the page can go).
+    var PAUSE_OUT_MS = 800, RESUME_IN_MS = 800, FADE_STEPS = 200;
+    // On or off: the "Soft pause" switch above Tidal's Crossfade setting (on by default).
+    var softOn = function () { try { return localStorage.getItem('wave.softPause') !== '0'; } catch (e) { return true; } };
+    var clamp = function (v) { return Math.max(0, Math.min(1, v)); };
+    // Raised-cosine curve: eases into and out of silence in tiny steps.
+    var curve = function (x) { return (1 - Math.cos(Math.PI * clamp(x))) / 2; };
+    var uncurve = function (l) { return Math.acos(1 - 2 * clamp(l)) / Math.PI; };
+    var realPlay = proto.play, realPause = proto.pause;
+    var volumeDesc = Object.getOwnPropertyDescriptor(proto, 'volume');
+    var states = new WeakMap(), gains = new WeakMap(), players = new Set();
+
+    function state(el) {
+      var st = states.get(el);
+      if (!st) {
+        st = { base: volumeDesc.get.call(el), mult: 1, fade: null, newTrack: true };
+        states.set(el, st);
+        el.addEventListener('loadstart', function () { st.newTrack = true; st.resumeIn = false; stopFade(el); setMult(el, 1); });
+        el.addEventListener('playing', function () { if (st.newTrack || el.currentTime <= 1) st.newTrack = false; });
+      }
+      return st;
+    }
+    function apply(el) {
+      var st = state(el), gain = gains.get(el);
+      if (gain) { gain.gain.value = st.mult; volumeDesc.set.call(el, st.base); }
+      else volumeDesc.set.call(el, clamp(st.base * st.mult));
+    }
+    function setMult(el, m) { var st = state(el); if (st.mult !== m) { st.mult = clamp(m); apply(el); } }
+    Object.defineProperty(proto, 'volume', {
+      configurable: true, enumerable: true,
+      get: function () { var st = states.get(this); return st ? st.base : volumeDesc.get.call(this); },
+      set: function (v) { var st = state(this); st.base = clamp(Number(v)); apply(this); }
+    });
+    // Played through Web Audio: a gain node of Wave's own between the element and Tidal's chain.
+    [window.AudioContext, window.webkitAudioContext].forEach(function (Ctx) {
+      if (!Ctx || !Ctx.prototype.createMediaElementSource) return;
+      var realCreate = Ctx.prototype.createMediaElementSource;
+      Ctx.prototype.createMediaElementSource = function (el) {
+        var source = realCreate.call(this, el);
+        try {
+          var gain = this.createGain();
+          AudioNode.prototype.connect.call(source, gain);
+          source.connect = function () { return gain.connect.apply(gain, arguments); };
+          source.disconnect = function () { return gain.disconnect.apply(gain, arguments); };
+          gains.set(el, gain);
+          apply(el);
+        } catch (e) {}
+        return source;
+      };
+    });
+    function stopFade(el) { var st = state(el); if (st.fade) { clearInterval(st.fade.timer); clearTimeout(st.fade.timer); st.fade = null; } }
+    // Moves the fade level to `to` over `ms` in `steps` even volume steps (more steps: smoother).
+    function ramp(el, to, ms, kind, done, steps) {
+      stopFade(el);
+      var st = state(el), x0 = uncurve(st.mult), x1 = uncurve(to), start = performance.now(), fade = { kind: kind, timer: 0 };
+      var n = Math.max(1, Math.round(steps || ms / STEP_MS)), every = Math.max(4, ms / n);
+      st.fade = fade;
+      var step = function () {
+        if (st.fade !== fade) return;
+        var k = ms > 0 ? Math.min(n, Math.floor((performance.now() - start) / every + 1e-6)) : n;
+        var t = k / n;
+        setMult(el, curve(x0 + (x1 - x0) * t));
+        if (t >= 1) { clearInterval(fade.timer); st.fade = null; if (done) done(); }
+      };
+      fade.timer = setInterval(step, every);
+      step();
+    }
+    function fadeOutThenPause(el) {
+      var st = state(el);
+      ramp(el, 0, PAUSE_OUT_MS, 'pause', fadeOutDone, FADE_STEPS);
+      function fadeOutDone() {
+        var fade = { kind: 'pause', timer: 0 };
+        st.fade = fade;
+        fade.timer = setTimeout(function () {
+          if (st.fade === fade) { st.fade = null; realPause.call(el); st.resumeIn = true; }
+        }, OUTPUT_TAIL_MS);
+      }
+    }
+    var isSong = function (el) { return isFinite(el.duration) && el.duration > 1; };
+    var audible = function (el) { return !el.muted && state(el).base > 0.01; };
+    // Pausing during a crossfade (Tidal's own setting): both songs pause, with the same fade.
+    function pausePartners(el) {
+      players.forEach(function (o) {
+        if (o === el || o.paused || !isSong(o)) return;
+        var so = state(o);
+        so.pausedWith = el;
+        if (so.fade && so.fade.kind === 'pause') return;
+        if (!audible(o) || so.mult < 0.05) { stopFade(o); realPause.call(o); } else fadeOutThenPause(o);
+      });
+    }
+    proto.pause = function () {
+      var st = state(this);
+      players.add(this);
+      if (!softOn()) { stopFade(this); setMult(this, 1); return realPause.call(this); }
+      if (!this.paused && audible(this) && st.mult >= 0.05) pausePartners(this);
+      if (st.fade && st.fade.kind === 'pause') return undefined; // already fading out
+      if (this.paused || this.ended || !audible(this) || !isSong(this) || this.currentTime < 0.5 || st.mult < 0.05) {
+        stopFade(this);
+        return realPause.call(this);
+      }
+      fadeOutThenPause(this);
+      return undefined;
+    };
+    proto.pause.__waveFade = true;
+    proto.play = function () {
+      var st = state(this), self = this;
+      players.add(this);
+      if (!softOn()) { stopFade(this); setMult(this, 1); st.resumeIn = false; return realPlay.call(this); }
+      st.pausedWith = null;
+      players.forEach(function (other) { // resumed mid-crossfade: the other song carries on too
+        var so = state(other);
+        if (other === self || so.pausedWith !== self) return;
+        so.pausedWith = null;
+        if (so.fade && so.fade.kind === 'pause') ramp(other, 1, RESUME_IN_MS, 'in', null, FADE_STEPS);
+        else if (other.paused) {
+          so.resumeIn = false;
+          setMult(other, 0);
+          var p = realPlay.call(other);
+          ramp(other, 1, RESUME_IN_MS, 'in', null, FADE_STEPS);
+          if (p && p.catch) p.catch(function () {});
+        }
+      });
+      if (st.fade && st.fade.kind === 'pause') { // played again while fading out: never stopped
+        ramp(this, 1, RESUME_IN_MS, 'in', null, FADE_STEPS);
+        return Promise.resolve();
+      }
+      if (this.paused && st.resumeIn && !st.newTrack && audible(this) && this.currentTime >= 0.5) {
+        st.resumeIn = false;
+        setMult(this, 0);
+        var result = realPlay.call(this);
+        ramp(this, 1, RESUME_IN_MS, 'in', null, FADE_STEPS);
+        if (result && result.catch) result.catch(function () { stopFade(self); setMult(self, 1); });
+        return result;
+      }
+      return realPlay.call(this);
+    };
+    W.fadeMs = function () { return softOn() ? PAUSE_OUT_MS + OUTPUT_TAIL_MS : 0; }; // how long a pause takes to really stop
+  })();
+
   // Full screen is refused (Wave is already full screen; the player's full-screen button only
   // broke navigation): requests resolve without doing anything, and the ring skips those buttons.
   (function () {
@@ -47,7 +196,7 @@
     if (!window.WaveApp) return;
     var e = media(), n = { title: '', artist: '', art: '', dur: 0, pos: 0, quality: '', fav: false };
     try { n = nowPlaying(); } catch (x) {} // play/pause is reported even if the song details can't be read
-    WaveApp.state(!!(e && !e.paused && !e.ended), n.title, n.artist, n.art, n.dur, n.pos, n.quality || '', !!n.fav);
+    WaveApp.state(!!(e && !e.paused && !e.ended), n.title, n.artist, n.art, n.dur, n.pos, n.quality || '', !!n.fav, n.tier || '');
   }
   function txt(el) { return el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''; }
   // What's playing, for Android's media controls and notification. Android's WebView has no
@@ -86,7 +235,8 @@
     }
     if (dur) pos = Math.min(pos, dur);
     return { title: title, artist: artist, art: art, dur: Math.round(dur * 1000), pos: Math.round(pos * 1000),
-             quality: streamQuality(pc && pc.playbackContext), fav: inCollection() };
+             quality: streamQuality(pc && pc.playbackContext), fav: inCollection(),
+             tier: String((pc && pc.playbackContext && pc.playbackContext.actualAudioQuality) || '') };
   }
   // The playing track's id: from Tidal's play queue, else its player state.
   function currentTrackId() {
@@ -190,6 +340,8 @@
           else userPickAt = Date.now();                                          // a song tapped in a list
         }
       } catch (e) {}
+      // Tidal's quality changed by something other than Wave: that's the choice for this network.
+      if (a && a.type === 'settings/SET_STREAMING_QUALITY' && !settingQuality && a.payload && QUALITIES[a.payload.to]) saveQuality(net, a.payload.to);
       // Picking a song while another plays: pause it first (see switchSongs).
       if (a && !fairJumping && (a.type === 'playQueue/MOVE_TO' || a.type === 'playQueue/ADD_TRACK_LIST_TO_PLAY_QUEUE')) {
         var self = this, args = arguments;
@@ -199,6 +351,9 @@
     };
     st.subscribe(fairChange);
     st.subscribe(checkPlayerOpened);
+    st.subscribe(resumeCheck);
+    applyQuality();
+    setTimeout(resumeWhereLeft, 1500); // once Tidal has restored its queue
     fairChange();
     npAction = false; // Tidal starts with its player closed
   }
@@ -214,7 +369,7 @@
     for (var i = 0; i < els.length; i++) if (!els[i].paused) { els[i].pause(); paused = true; }
     if (switchTimer) { clearTimeout(switchTimer); paused = true; } // an earlier pick still waiting: drop it
     if (!paused) return false;
-    switchTimer = setTimeout(function () { switchTimer = 0; go(); }, 400);
+    switchTimer = setTimeout(function () { switchTimer = 0; go(); }, 400 + (W.fadeMs ? W.fadeMs() : 0)); // after the fade-out
     return true;
   }
 
@@ -337,13 +492,13 @@
     return seen >= 2;
   }
   // Something else (a menu, a dialog) is on top of part of r: the analyzer there hides.
-  function covered(r, box) {
+  function covered(r, box, also) {
     var pts = [[0.5, 0.5], [0.1, 0.2], [0.9, 0.2], [0.1, 0.8], [0.9, 0.8]];
     for (var i = 0; i < pts.length; i++) {
       var x = r.left + r.width * pts[i][0], y = r.top + r.height * pts[i][1];
       if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) continue;
       var el = document.elementFromPoint(x, y);
-      if (el && !box.contains(el)) return true;
+      if (el && !box.contains(el) && !(also && also.contains(el))) return true; // `also`: allowed on top
     }
     return false;
   }
@@ -354,7 +509,9 @@
     // screen that isn't a full-screen backdrop.
     var art = document.querySelector('[data-test="now-playing-artwork"]'), ar = art && rectOf(art);
     var coverEl = null;
-    if (ar && ar.top >= 0 && ar.bottom <= vh) { cover = ar; coverEl = art; best = ar.width * ar.height; }
+    // Partly off screen counts too (landscape: the cover can be taller than the screen); the
+    // visible part is used.
+    if (ar && ar.width > 0 && Math.min(ar.bottom, vh) - Math.max(ar.top, 0) >= ar.height * 0.4) { cover = ar; coverEl = art; best = ar.width * ar.height; }
     var imgs = cover ? [] : document.querySelectorAll('img,video,canvas');
     for (i = 0; i < imgs.length; i++) {
       var r = rectOf(imgs[i]), a = r ? r.width * r.height : 0;
@@ -364,11 +521,22 @@
     }
     if (!cover || best < vw * vh * 0.04) return 'off';
     var h = Math.max(40, Math.min(160, cover.height * 0.22));
-    var top = cover.bottom - h;
+    var visTop = Math.max(cover.top, 0), visBottom = Math.min(cover.bottom, vh), clipped = visBottom < cover.bottom;
+    // Tidal's wide layout (landscape) keeps its player bar over the bottom of the full-screen
+    // player (seen with Wave Probe 7): no room for the quality line under the cover then.
+    var bar = document.querySelector('[data-test="footer-player"]'), br = bar && rectOf(bar), onBar = false;
+    if (br && br.top < visBottom && br.bottom > visTop && br.left < cover.right && br.right > cover.left) {
+      onBar = true;
+      clipped = true;
+    }
+    if (visBottom - visTop < cover.height * 0.4) return 'off';
+    var top = visBottom - h; // on the cover's (visible) bottom edge
     var box = (coverEl.closest && coverEl.closest('[data-test="new-now-playing"]')) || coverEl.parentElement || coverEl;
-    if (covered({ left: cover.left, top: top, width: cover.width, height: h }, box)) return 'off';
+    if (covered({ left: cover.left, top: top, width: cover.width, height: h }, box, onBar ? bar : null)) return 'off';
     var url = coverEl && coverEl.tagName === 'IMG' ? (coverEl.currentSrc || coverEl.src || '') : '';
-    return [Math.round(cover.left), Math.round(top), Math.round(cover.width), Math.round(h), vw].join(',') + '|' + url;
+    // l,t,w,h (the analyzer's box), page width, and the top of the cover's visible part (for the meters).
+    // ...and whether the cover's bottom is hidden (then there's no room for the quality line under it).
+    return [Math.round(cover.left), Math.round(top), Math.round(cover.width), Math.round(h), vw, Math.round(visTop), clipped ? 1 : 0].join(',') + '|' + url;
   }
   // The small analyzer in Tidal's player bar: between the time readout (or the play controls)
   // and the buttons on the right, coloured from the bar's own small cover, while the full-screen
@@ -829,6 +997,218 @@
   W.ringOff = function () { ringOn = false; cur = null; drawRing(); };
   // Turn the ring on without moving it; it appears as soon as the page has something to ring.
   W.ring = function () { ringOn = true; schedule(); };
+  // ---------- The song's position, kept when you leave ----------
+  // Tidal brings back its play queue and song when it opens, paused, but from 0:00 (seen with Wave
+  // Probe). Wave keeps the song's position and puts it back: Tidal's own seek
+  // (playbackControls/SEEK, in seconds) once it has the song, and again when it starts playing if
+  // it began from the start anyway. Wave opens on Tidal's home page as usual.
+  var RESUME_KEY = 'wave.resume', resumeReady = false, resumeAt = null;
+  function playPos() {
+    try {
+      var pc = fairStore.getState().playbackControls, pos = pc.latestCurrentTime || 0;
+      if (pc.playbackState === 'PLAYING' && pc.latestCurrentTimeSyncTimestamp) pos += (Date.now() - pc.latestCurrentTimeSyncTimestamp) / 1000;
+      return pos;
+    } catch (e) { return 0; }
+  }
+  function saveResume() {
+    if (!resumeReady || !fairStore) return; // not before the last one has been put back
+    var id = currentTrackId();
+    if (!id) return;
+    try { localStorage.setItem(RESUME_KEY, JSON.stringify({ id: id, pos: Math.round(playPos() * 10) / 10 })); } catch (e) {}
+  }
+  function seekTo(s) {
+    try { fairStore.dispatch({ type: 'playbackControls/SEEK', payload: s }); } catch (e) {}
+  }
+  function resumeWhereLeft() {
+    if (resumeReady) return;
+    var r = null;
+    try { r = JSON.parse(localStorage.getItem(RESUME_KEY) || 'null'); } catch (e) {}
+    resumeReady = true;
+    if (!r || !fairStore || currentTrackId() !== r.id) return; // a different song now: nothing to put back
+    if (r.pos > 2 && playPos() < 1) { seekTo(r.pos); resumeAt = { id: r.id, pos: r.pos }; }
+  }
+  // Started from 0:00 after all: go to the saved position (once, for that song).
+  function resumeCheck() {
+    if (!resumeAt || !fairStore) return;
+    var pc = null;
+    try { pc = fairStore.getState().playbackControls; } catch (e) {}
+    if (!pc || pc.playbackState !== 'PLAYING') return;
+    var want = resumeAt;
+    resumeAt = null;
+    setTimeout(function () { if (currentTrackId() === want.id && playPos() < want.pos - 3) seekTo(want.pos); }, 300);
+  }
+  setInterval(saveResume, 5000);
+  addEventListener('pause', saveResume, true);
+  document.addEventListener('visibilitychange', function () { if (document.hidden) saveResume(); });
+  addEventListener('pagehide', saveResume);
+  W.saveResume = saveResume; // the app calls it when it goes to the background
+
+  // ---------- Audio quality for Wi-Fi and for mobile data (Wave Mobile) ----------
+  // Tidal has one streaming quality (settings.quality.streaming). Wave keeps one for Wi-Fi and one
+  // for mobile data, and sends Tidal's own command (settings/SET_STREAMING_QUALITY, seen with
+  // Wave Probe) whenever the network or the choice changes. Both start as Tidal's current choice.
+  var QUALITIES = { LOW: 1, HIGH: 1, LOSSLESS: 1, HI_RES_LOSSLESS: 1 };
+  var net = 'wifi', netKnown = false, settingQuality = false;
+  function tidalQuality() {
+    try { return fairStore.getState().settings.quality.streaming; } catch (e) { return null; }
+  }
+  function savedQuality(n) {
+    var q = null;
+    try { q = localStorage.getItem('wave.quality.' + n); } catch (e) {}
+    return QUALITIES[q] ? q : null;
+  }
+  function saveQuality(n, q) {
+    try { localStorage.setItem('wave.quality.' + n, q); } catch (e) {}
+    renderQuality();
+  }
+  function applyQuality() {
+    if (!W.phone || !netKnown || !fairStore) return;
+    var cur = tidalQuality(), want = savedQuality(net);
+    if (!want) { // first time: both networks start from Tidal's current choice
+      if (!QUALITIES[cur]) return;
+      if (!savedQuality('wifi')) saveQuality('wifi', cur);
+      if (!savedQuality('cell')) saveQuality('cell', cur);
+      return;
+    }
+    if (cur === want) return;
+    settingQuality = true;
+    try { fairStore.dispatch({ type: 'settings/SET_STREAMING_QUALITY', payload: { from: cur, to: want } }); } catch (e) {}
+    settingQuality = false;
+  }
+  W.setNetwork = function (n) {
+    net = n === 'cell' ? 'cell' : 'wifi';
+    netKnown = true;
+    applyQuality();
+    renderQuality();
+  };
+  function chooseQuality(n, q) {
+    saveQuality(n, q);
+    if (n === net) applyQuality();
+  }
+
+  // The General tab on phones: Tidal's Low / High / Max rows make way for two cards, one per
+  // network, built like Tidal's; its Adaptive streaming row stays.
+  var OPTIONS = [
+    { title: 'Low', sub: 'Balance audio quality and data consumption', values: ['LOW', 'HIGH'] },
+    { title: 'High', sub: '16-bit, 44.1 kHz', values: ['LOSSLESS'] },
+    { title: 'Max', sub: 'Up to 24-bit, 192 kHz', values: ['HI_RES_LOSSLESS'] }
+  ];
+  var qualityBox = null;
+  function qualityCss() {
+    settingsCss();
+    if (document.getElementById('wave-quality-css')) return;
+    var st = el('style');
+    st.id = 'wave-quality-css';
+    st.textContent =
+      '.wv-q{display:flex;flex-direction:column;gap:16px;margin-bottom:16px}.wv-q .wv-card+.wv-card{margin-top:0}' +
+      '.wv-opt{cursor:pointer}' +
+      '.wv-radio{flex:none;position:relative;width:24px;height:24px;border-radius:50%;background:rgba(48,48,54,.4)}' +
+      '.wv-radio::after{content:"";position:absolute;top:7px;left:7px;width:10px;height:10px;border-radius:50%;background:transparent}' +
+      // The picked option's colour, as on Tidal's page: Low white, High teal, Max gold, with a
+      // faint glow of it from the left of the row and a tinted ring around the dot.
+      '.wv-opt[aria-checked="true"]{--q:255,255,255}' +
+      '.wv-opt[data-q="high"][aria-checked="true"]{--q:92,242,220}' +
+      '.wv-opt[data-q="max"][aria-checked="true"]{--q:255,212,50}' +
+      '.wv-opt[aria-checked="true"]{--g:.16;background:radial-gradient(ellipse 55% 140% at 0% 50%,rgba(var(--q),var(--g)),rgba(var(--q),0)),rgba(24,24,27,.6)}' +
+      '.wv-opt[data-q="low"][aria-checked="true"]{--g:.09}' +
+      '.wv-opt[aria-checked="true"] .wv-radio{background:rgba(var(--q),.14)}' +
+      '.wv-opt[aria-checked="true"] .wv-radio::after{background:rgb(var(--q))}' +
+      '.wv-opt .wv-txt{flex:1}' +
+      '.wv-left{display:flex;align-items:center;gap:16px;flex:1;min-width:0}' +
+      '.wv-sel{flex:none;border:0;border-radius:7px;padding:7px 10px;background:#18181b;color:#fff;font:inherit;font-size:.857em;font-weight:600}';
+    (document.head || document.documentElement).appendChild(st);
+  }
+  function qualityCard(n, title) {
+    var c = el('div', 'wv-card');
+    c.setAttribute('data-net', n);
+    var head = row(title, '');
+    c.appendChild(head);
+    c.head = head;
+    OPTIONS.forEach(function (o, i) {
+      var r = el('div', 'wv-row wv-opt'), left = el('div', 'wv-left'), t = el('div', 'wv-txt');
+      r.setAttribute('role', 'radio');
+      r.setAttribute('tabindex', '0');
+      r.setAttribute('data-q', o.title.toLowerCase());
+      left.appendChild(el('span', 'wv-radio'));
+      t.appendChild(el('span', 'wv-t', o.title));
+      t.appendChild(el('span', 'wv-s', o.sub));
+      left.appendChild(t);
+      r.appendChild(left);
+      var sel = null;
+      if (o.values.length > 1) { // Low: 96 or 320 kbps, as in Tidal
+        sel = el('select', 'wv-sel');
+        [['LOW', '96 kbps'], ['HIGH', '320 kbps']].forEach(function (v) {
+          var op = el('option', '', v[1]);
+          op.value = v[0];
+          sel.appendChild(op);
+        });
+        sel.onclick = function (e) { e.stopPropagation(); };
+        sel.onchange = function () { chooseQuality(n, sel.value); };
+        r.appendChild(sel);
+      }
+      r.onclick = function () { chooseQuality(n, sel ? sel.value : o.values[0]); };
+      r.opt = o;
+      r.sel = sel;
+      c.appendChild(r);
+    });
+    return c;
+  }
+  function renderQuality() {
+    if (!qualityBox || !qualityBox.isConnected) return;
+    var cards = qualityBox.querySelectorAll('.wv-card');
+    for (var i = 0; i < cards.length; i++) {
+      var c = cards[i], n = c.getAttribute('data-net'), q = savedQuality(n) || tidalQuality();
+      c.head.sub.textContent = netKnown && n === net ? 'In use now' : (n === 'cell' ? 'When the phone uses mobile data' : 'When the phone is on Wi-Fi');
+      var opts = c.querySelectorAll('.wv-opt');
+      for (var k = 0; k < opts.length; k++) {
+        var o = opts[k].opt, on = o.values.indexOf(q) >= 0;
+        opts[k].setAttribute('aria-checked', String(on));
+        if (opts[k].sel && on) opts[k].sel.value = q;
+      }
+    }
+  }
+  function qualityTick() {
+    if (!W.phone) return;
+    var low = document.querySelector('[data-test="audio-quality-low"]');
+    if (!low) { qualityBox = null; return; }
+    var lowRow = low.parentElement, card = lowRow && lowRow.parentElement;
+    if (!card) return;
+    // Tidal's own Low / High / Max rows: hidden (Wave's cards below set the quality).
+    ['low', 'high', 'max'].forEach(function (k) {
+      var b = document.querySelector('[data-test="audio-quality-' + k + '"]'), r = b && b.parentElement;
+      if (r && r.style.display !== 'none') r.style.display = 'none';
+    });
+    card.style.overflow = 'hidden'; // Adaptive streaming is now its only row: keep its corners round
+    if (!qualityBox || !qualityBox.isConnected || qualityBox.nextSibling !== card) {
+      qualityCss();
+      qualityBox = el('div', 'wv-q');
+      qualityBox.appendChild(qualityCard('wifi', 'On Wi-Fi'));
+      qualityBox.appendChild(qualityCard('cell', 'On mobile data'));
+      card.parentNode.insertBefore(qualityBox, card);
+    }
+    renderQuality();
+  }
+
+  // ---------- Soft pause switch, above Tidal's Crossfade setting (General tab) ----------
+  var softRow = null;
+  function softPauseTick() {
+    // Tidal's Crossfade row (seen with Wave Probe 6): the Soft pause row goes right above it, in
+    // the same Playback card.
+    var cf = document.querySelector('[data-test="crossfade-settings"]');
+    if (!cf || !cf.parentNode) { softRow = null; return; }
+    if (softRow && softRow.isConnected && softRow.nextSibling === cf) return;
+    settingsCss();
+    softRow = row('Soft pause', 'Fade out for 0.8 s before pausing, and back in when playing again');
+    softRow.classList.add('wv-soft');
+    softRow.style.borderRadius = '0';
+    var on = true;
+    try { on = localStorage.getItem('wave.softPause') !== '0'; } catch (x) {}
+    softRow.appendChild(toggle(on, function (v) {
+      try { localStorage.setItem('wave.softPause', v ? '1' : '0'); } catch (x) {}
+    }));
+    cf.parentNode.insertBefore(softRow, cf);
+  }
+
   // ---------- Wave's own tab in Tidal's settings ----------
   // A "Wave" tab after General / Account / About (a copy of Tidal's own tab), with a page built
   // like Tidal's settings: fair shuffle, updates from GitHub, and the license. Tidal's own tabs
@@ -852,7 +1232,8 @@
       '.wv-card{display:flex;flex-direction:column;border-radius:16px;border-bottom:1px solid #18181b;overflow:hidden}' +
       '.wv-card+.wv-card{margin-top:16px}' +
       '.wv-row{position:relative;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px;background:rgba(24,24,27,.6)}' +
-      '.wv-row+.wv-row::before{content:"";position:absolute;top:0;left:16px;right:16px;height:1px;background:rgba(255,255,255,.06)}' +
+      '.wv-row+.wv-row::before,.wv-soft::before,.wv-soft::after{content:"";position:absolute;left:16px;right:16px;height:1px;background:rgba(255,255,255,.06)}' +
+      '.wv-row+.wv-row::before{top:0}.wv-soft::before{top:0}.wv-soft::after{bottom:0}' +
       '.wv-txt{display:flex;flex-direction:column;gap:4px;min-width:0}' +
       '.wv-t{font-weight:600;line-height:18px}' +
       '.wv-s{font-size:.857em;font-weight:500;line-height:1.5;color:#afafb6}' +
@@ -861,7 +1242,9 @@
       '.wv-sw[aria-checked="true"]{background:#e4e4e7}' +
       '.wv-sw[aria-checked="true"]::after{transform:translateX(16px)}' +
       '.wv-btn{flex:none;border:0;border-radius:7px;padding:7px 12px;background:#18181b;color:#fff;font:inherit;font-size:.857em;font-weight:600;cursor:pointer}' +
-      '.wv-btn[disabled]{opacity:.5}';
+      '.wv-btn[disabled]{opacity:.5}' +
+      '.wv-sel{flex:none;border:0;border-radius:7px;padding:7px 10px;background:#18181b;color:#fff;font:inherit;font-size:.857em;font-weight:600}' +
+      '.wv-range{width:100%;margin:4px 0 0;accent-color:#fff}';
     (document.head || document.documentElement).appendChild(st);
   }
   function row(title, sub) {
@@ -917,6 +1300,76 @@
     p.appendChild(s1b);
     renderRounds();
 
+    // The full-screen player's cover: the spectrum analyzer and the VU meters.
+    var sa = section('Player');
+    var setting = function (k, v) {
+      try { WaveApp.setSetting(k, Number(v)); } catch (e) {}
+      if (k === 'vuStyle' || k === 'vuOpacity') W.vizConfig(k, Number(v)); else W.vizConfig(k, !!Number(v));
+    };
+    function slider(label, value, change) {
+      var r = row(label + ': ' + value + '%', ''), t = r.querySelector('.wv-t');
+      r.querySelector('.wv-s').style.display = 'none';
+      r.style.flexDirection = 'column';
+      r.style.alignItems = 'stretch';
+      var sl = el('input', 'wv-range');
+      sl.type = 'range'; sl.min = '0'; sl.max = '100'; sl.step = '5'; sl.value = String(value);
+      sl.oninput = function () { t.textContent = label + ': ' + sl.value + '%'; change(Number(sl.value)); };
+      r.appendChild(sl);
+      r.set = function (v) { sl.value = String(v); t.textContent = label + ': ' + v + '%'; };
+      r.enable = function (on) { sl.disabled = !on; r.style.opacity = on ? '' : '.5'; };
+      return r;
+    }
+    var aOn = row('Spectrum analyzer', 'Bars over the bottom of the album art');
+    aOn.appendChild(toggle(info.analyzerOn !== false, function (v) { setting('analyzerOn', v ? 1 : 0); }));
+    var aLabels = row('Frequency numbers', 'The 50 … 20k scale under the album art (hidden when the player is over it)');
+    aLabels.appendChild(toggle(info.labelsOn !== false, function (v) { setting('labelsOn', v ? 1 : 0); }));
+    var aOp = isFinite(info.analyzerOpacity) ? info.analyzerOpacity : 30, vOp = isFinite(info.vuOpacity) ? info.vuOpacity : 60;
+    var match = !!info.vuMatch, vSl;
+    var aSl = slider('Analyzer opacity', aOp, function (v) {
+      aOp = v;
+      try { WaveApp.setAnalyzerOpacity(v); } catch (e) {}
+      W.vizConfig('analyzerOpacity', v);
+      if (match) vSl.set(v);
+    });
+    var vOn = row('VU meters', 'A VU meter and a peak meter in the top corners of the album art');
+    vOn.appendChild(toggle(info.vuOn !== false, function (v) { setting('vuOn', v ? 1 : 0); }));
+    var vStyle = row('Meter style', 'Needle meters, or LED bars with a number');
+    var styleSel = el('select', 'wv-sel');
+    [['0', 'Analog'], ['1', 'Digital']].forEach(function (o) { var op = el('option', '', o[1]); op.value = o[0]; styleSel.appendChild(op); });
+    styleSel.value = String(info.vuStyle === 1 ? 1 : 0);
+    styleSel.onchange = function () { setting('vuStyle', styleSel.value); };
+    vStyle.appendChild(styleSel);
+    vSl = slider('VU meter opacity', match ? aOp : vOp, function (v) { vOp = v; setting('vuOpacity', v); });
+    vSl.enable(!match);
+    var vMatch = row('Match the analyzer\'s opacity', 'The VU meters use the analyzer opacity');
+    vMatch.appendChild(toggle(match, function (v) {
+      match = v;
+      setting('vuMatch', v ? 1 : 0);
+      vSl.set(v ? aOp : vOp);
+      vSl.enable(!v);
+    }));
+    sa.appendChild(card([aOn, aLabels, aSl]));
+    sa.appendChild(card([vOn, vStyle, vSl, vMatch]));
+    p.appendChild(sa);
+
+    if (info.phone) { // phones: how big Tidal's page is drawn (the TV has Menu-hold page widths)
+      var sd = section('Display');
+      var ts = isFinite(info.textSize) ? info.textSize : 100, tmax = isFinite(info.textSizeMax) ? info.textSizeMax : 130;
+      // What applies on this screen: Tidal's layout can't get narrower than the app allows.
+      var tlabel = function (v) { return 'Text size: ' + v + '%' + (v > tmax ? ' (' + tmax + '% on this screen)' : ''); };
+      var trow = row(tlabel(ts), 'Tidal\'s text, rows and buttons, all together. A narrow screen gets as much as fits.'), tt = trow.querySelector('.wv-t');
+      trow.style.flexDirection = 'column';
+      trow.style.alignItems = 'stretch';
+      var tsl = el('input', 'wv-range');
+      tsl.type = 'range'; tsl.min = '80'; tsl.max = '130'; tsl.step = '5'; tsl.value = String(ts);
+      tsl.oninput = function () { tt.textContent = tlabel(Number(tsl.value)); };
+      // Applied when the slider is let go (the page redraws at the new size).
+      tsl.onchange = function () { try { WaveApp.setSetting('textSize', Number(tsl.value)); } catch (e) {} };
+      trow.appendChild(tsl);
+      sd.appendChild(card([trow]));
+      p.appendChild(sd);
+    }
+
     var s2 = section('Updates');
     var ver = row((info.name || 'Wave') + ' ' + (info.version || ''), 'Updates come from Wave\'s releases on GitHub.');
     ui.status = ver.sub;
@@ -929,6 +1382,23 @@
     s2.appendChild(card([ver]));
     s2.appendChild(card([auto]));
     p.appendChild(s2);
+
+    var sc = section('Crash reports');
+    var cr = row('Send crash reports automatically',
+      'After a crash, the next time Wave opens it posts the details (app version, Android version, phone model and the error) ' +
+      'as an issue on Wave\'s GitHub page, where they\'re public.' + (info.crashRelay ? '' : ' Not set up in this build yet.'));
+    cr.appendChild(toggle(!!info.crashAuto, function (v) { WaveApp.setCrashAuto(v); }));
+    var crashCard = [cr];
+    if (info.beta) { // test builds: crash on purpose to try it
+      var tc = row('Test crash', 'Stops Wave on purpose and opens it again, to try the crash report. Wave Beta only.');
+      var tb = el('button', 'wv-btn', 'Crash');
+      tb.type = 'button';
+      tb.onclick = function () { tb.disabled = true; tb.textContent = 'Crashing…'; WaveApp.testCrash(); };
+      tc.appendChild(tb);
+      crashCard.push(tc);
+    }
+    sc.appendChild(card(crashCard));
+    p.appendChild(sc);
 
     var s3 = section('License');
     var lic = row('GNU General Public License, version 3',
@@ -1044,6 +1514,8 @@
     for (var i = 0; i < hidden.length; i++) { hidden[i].style.display = ''; hidden[i].removeAttribute('data-wave-hidden'); }
   }
   function settingsTick() {
+    try { qualityTick(); } catch (e) {}
+    try { softPauseTick(); } catch (e) {}
     var tabs = tabRow();
     if (!tabs) { if (wavePanel) hideWave(); return; }
     if (!tabs.querySelector('[data-test="settings-tab--wave"]')) {
@@ -1076,6 +1548,358 @@
       hideWave(); // one of Tidal's tabs: its page comes back
     }
   }, true);
+
+  // Text size (phones): the page has to fill the screen's width at the chosen size. If it doesn't
+  // (part of it cut off), the size goes back to 100% so nothing (like the settings) is out of reach.
+  W.checkFit = function () {
+    setTimeout(function () {
+      var vv = window.visualViewport, layout = document.documentElement.clientWidth;
+      if (!vv || !layout) return;
+      if (vv.width < layout * 0.95 || document.documentElement.scrollWidth > layout * 1.05) {
+        try { WaveApp.setSetting('textSize', 100); } catch (e) {}
+        note('Text size is back to 100%: the page didn\'t fit the screen at that size');
+      }
+    }, 900);
+  };
+
+  // ---------- Analyzers and meters, drawn in the page ----------
+  // The app measures the sound (Android's capture of the output) and picks the cover colours;
+  // the page draws, on canvases inside Tidal's own layout, so Tidal's controls and menus are on
+  // top of them by themselves:
+  // - over the cover in the full-screen player: the spectrum analyzer on the cover's bottom edge
+  //   (frequency labels just under the cover) and the VU and PEAK meters in its top corners;
+  // - in the player bar, between the song and the buttons: a small solid analyzer while playing.
+  // Each fades in with sound and out with silence. Settings: the Wave tab's Player section.
+  var VZ = { cfg: { analyzerOn: true, labelsOn: true, vuOn: true, analyzerOpacity: 30, vuOpacity: 60, vuMatch: false, vuStyle: 0 },
+    color: { cover: '#33C3F0', mini: '#33C3F0' }, cover: null, mini: null, wanted: false, lastMini: null, miniAt: 0 };
+  try {
+    var vinfo = JSON.parse(WaveApp.appInfo());
+    for (var vk in VZ.cfg) if (vinfo[vk] !== undefined) VZ.cfg[vk] = vinfo[vk];
+  } catch (e) {}
+  W.setVizColor = function (which, hex) { VZ.color[which === 'mini' ? 'mini' : 'cover'] = hex; };
+  W.vizConfig = function (k, v) { VZ.cfg[k] = v; };
+  var FLOOR = -50, LABEL_HZ = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000], LABELS = ['50', '100', '200', '500', '1k', '2k', '5k', '10k', '20k'];
+  function vizBars(n) {
+    var b = { n: n, shown: [], peak: [], peakAt: [], level: 0 };
+    for (var i = 0; i < n; i++) { b.shown.push(FLOOR); b.peak.push(FLOOR); b.peakAt.push(0); }
+    return b;
+  }
+  function rgba(hex, a) {
+    var v = parseInt(hex.slice(1), 16);
+    return 'rgba(' + (v >> 16 & 255) + ',' + (v >> 8 & 255) + ',' + (v & 255) + ',' + a + ')';
+  }
+  function lighten(hex) { // the peak markers: the colour halfway to white
+    var v = parseInt(hex.slice(1), 16), r = ((v >> 16 & 255) + 255) >> 1, g = ((v >> 8 & 255) + 255) >> 1, b2 = ((v & 255) + 255) >> 1;
+    return '#' + ((1 << 24) + (r << 16) + (g << 8) + b2).toString(16).slice(1);
+  }
+  function canvasIn(parent, name, after) {
+    var c = document.createElement('canvas');
+    c.setAttribute('data-wave', name);
+    c.style.cssText = 'position:absolute;pointer-events:none;z-index:auto;left:0;top:0';
+    if (!after && getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
+    if (after) parent.insertBefore(c, after.nextSibling); else parent.appendChild(c);
+    return c;
+  }
+  function fit(c, w, h) { // canvas pixels for its CSS size
+    var d = window.devicePixelRatio || 1, pw = Math.max(1, Math.round(w * d)), ph = Math.max(1, Math.round(h * d));
+    if (c.width !== pw || c.height !== ph) { c.width = pw; c.height = ph; }
+    c.style.width = w + 'px';
+    c.style.height = h + 'px';
+    var x = c.getContext('2d');
+    x.setTransform(d, 0, 0, d, 0, 0);
+    x.clearRect(0, 0, w, h);
+    return x;
+  }
+  // Bars rise at once and fall smoothly; a peak marker holds briefly.
+  function stepBars(b, target, dt, now, hearing) {
+    b.level = hearing ? Math.min(1, b.level + dt / 0.4) : Math.max(0, b.level - dt / 0.6);
+    for (var i = 0; i < b.n; i++) {
+      var t = target && target[i] !== undefined ? target[i] : FLOOR;
+      b.shown[i] = t >= b.shown[i] ? t : Math.max(t, b.shown[i] - 45 * dt);
+      if (b.shown[i] >= b.peak[i]) { b.peak[i] = b.shown[i]; b.peakAt[i] = now; }
+      else if (now - b.peakAt[i] > 400) b.peak[i] = Math.max(b.shown[i], b.peak[i] - 25 * dt);
+    }
+    var l = b.level;
+    return l * l * (3 - 2 * l);
+  }
+  function drawBars(x, b, left, top, w, h, color, alpha) {
+    var slot = w / b.n, gap = Math.max(1, slot * 0.2), cap = 2;
+    x.fillStyle = rgba(color, alpha);
+    for (var i = 0; i < b.n; i++) {
+      var bx = left + i * slot + gap / 2, bw = slot - gap, lv = (b.shown[i] - FLOOR) / -FLOOR;
+      var bh = Math.max(cap, lv * (h - cap * 2));
+      x.fillRect(bx, top + h - bh, bw, bh);
+    }
+    x.fillStyle = rgba(lighten(color), Math.min(1, alpha + 0.1));
+    for (var k = 0; k < b.n; k++) {
+      var px = left + k * slot + gap / 2, pl = (b.peak[k] - FLOOR) / -FLOOR, py = top + h - cap * 2 - pl * (h - cap * 2);
+      x.fillRect(px, py, slot - gap, cap);
+    }
+  }
+  // ---- The meters: VU (averaged, slow needle; 0 VU = -18 dBFS) and PEAK (fast, falls back) ----
+  function vuMeter(kind) { return { kind: kind, pos: 0, reading: -60, held: 0, heldAt: 0 }; }
+  function place(kind, m) { // where a mark sits on the scale, 0..1
+    if (kind === 'VU') {
+      var v = Math.pow(10, Math.max(-30, Math.min(4, m)) / 20), lo = Math.pow(10, -1), hi = Math.pow(10, 3 / 20);
+      return Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+    }
+    return Math.max(0, Math.min(1, (m + 40) / 40));
+  }
+  function stepMeter(m, rms, peak, dt, now, hearing) {
+    var target = hearing ? (m.kind === 'VU' ? place('VU', rms + 18) : place('PEAK', peak)) : 0;
+    if (m.kind === 'VU') m.pos += (target - m.pos) * (1 - Math.exp(-dt / 0.09));
+    else m.pos = target >= m.pos ? target : Math.max(target, m.pos - dt * 13 / 40);
+    var value = m.kind === 'VU' ? rms + 18 : peak;
+    m.reading += (Math.max(-60, value) - m.reading) * (1 - Math.exp(-dt / (m.kind === 'VU' ? 0.09 : 0.03)));
+    if (m.pos >= m.held || now - m.heldAt > 1000) { m.held = m.pos; m.heldAt = now; }
+  }
+  var RED = '#E5484D';
+  function drawMeter(x, m, left, top, w, h, color, alpha, digital) {
+    if (alpha < 0.004) return;
+    x.save();
+    x.globalAlpha = alpha;
+    x.beginPath();
+    if (x.roundRect) x.roundRect(left, top, w, h, 6); else x.rect(left, top, w, h);
+    x.fillStyle = 'rgba(0,0,0,.55)';
+    x.fill();
+    x.strokeStyle = 'rgba(255,255,255,.25)';
+    x.lineWidth = 0.75;
+    x.stroke();
+    x.clip();
+    var marks = m.kind === 'VU' ? [-20, -10, -7, -5, -3, -1, 0, 1, 2, 3] : [-40, -30, -20, -10, -6, -3, 0];
+    var redFrom = place(m.kind, m.kind === 'VU' ? 0 : -3), isRed = function (v) { return v >= (m.kind === 'VU' ? 0 : -3); };
+    if (digital) {
+      var pad = h * 0.1, ts = Math.max(7, h * 0.15);
+      x.font = '500 ' + ts + 'px sans-serif';
+      x.textAlign = 'left';
+      x.fillStyle = 'rgba(255,255,255,.8)';
+      x.fillText(m.kind, left + pad, top + pad + ts * 0.8);
+      var sv = Math.max(m.kind === 'VU' ? -20 : -40, m.reading);
+      x.textAlign = 'right';
+      x.fillStyle = (m.kind === 'VU' ? sv >= 0 : sv >= -3) ? RED : 'rgba(255,255,255,.9)';
+      x.fillText((sv > 0.05 ? '+' : sv < -0.05 ? '−' : '') + Math.abs(sv).toFixed(1) + (m.kind === 'VU' ? ' VU' : ' dB'), left + w - pad, top + pad + ts * 0.8);
+      var N = 24, st = top + h * 0.42, sb = top + h * 0.66, sl = left + pad, sr = left + w - pad, gap = 1.2, sw = (sr - sl - gap * (N - 1)) / N;
+      var hs = Math.min(N - 1, Math.floor(m.held * N));
+      for (var i = 0; i < N; i++) {
+        var mid = (i + 0.5) / N, red = mid >= redFrom, lit = mid <= m.pos || (i === hs && m.held > 0.02);
+        x.fillStyle = red ? (lit ? RED : 'rgba(229,72,77,.15)') : (lit ? color : rgba(color, 0.15));
+        x.fillRect(sl + i * (sw + gap), st, sw, sb - st);
+      }
+      x.font = '500 ' + ts * 0.85 + 'px sans-serif';
+      x.textAlign = 'center';
+      (m.kind === 'VU' ? [-20, -5, 0, 3] : [-40, -20, -10, 0]).forEach(function (v) {
+        var half = x.measureText('+3').width / 2, px = sl + (sr - sl) * place(m.kind, v);
+        x.fillStyle = isRed(v) ? RED : 'rgba(255,255,255,.7)';
+        x.fillText((v > 0 ? '+' : '') + v, Math.max(sl + half, Math.min(sr - half, px)), sb + ts * 1.15);
+      });
+    } else {
+      var S = 40 * Math.PI / 180, cx = left + w / 2, cy = top + h * 1.15, r = h * 0.92, ts2 = Math.max(7, h * 0.13);
+      x.beginPath();
+      x.arc(cx, cy, r, -Math.PI / 2 - S + 2 * S * redFrom, -Math.PI / 2 + S);
+      x.strokeStyle = RED;
+      x.lineWidth = Math.max(2, h * 0.035);
+      x.stroke();
+      x.font = '500 ' + ts2 + 'px sans-serif';
+      x.textAlign = 'center';
+      x.lineCap = 'round';
+      marks.forEach(function (v) {
+        var a = -S + 2 * S * place(m.kind, v), sx = Math.sin(a), sy = -Math.cos(a);
+        var major = m.kind === 'VU' ? [-20, -5, 0, 3].indexOf(v) >= 0 : [-40, -20, -10, 0].indexOf(v) >= 0, inn = r - (major ? h * 0.12 : h * 0.07);
+        x.strokeStyle = isRed(v) ? RED : 'rgba(255,255,255,.8)';
+        x.lineWidth = 0.9;
+        x.beginPath(); x.moveTo(cx + sx * inn, cy + sy * inn); x.lineTo(cx + sx * r, cy + sy * r); x.stroke();
+        if (major) {
+          var tr = r - h * 0.22;
+          x.fillStyle = 'rgba(255,255,255,.8)';
+          x.fillText((v > 0 ? '+' : '') + v, cx + sx * tr, cy + sy * tr + ts2 * 0.35);
+        }
+      });
+      x.textAlign = 'left';
+      x.font = '500 ' + ts2 * 0.95 + 'px sans-serif';
+      x.fillStyle = 'rgba(255,255,255,.8)';
+      x.fillText(m.kind, left + h * 0.1, top + h - ts2 * 0.55);
+      var na = -S + 2 * S * m.pos, nx = Math.sin(na), ny = -Math.cos(na);
+      x.strokeStyle = color;
+      x.lineWidth = 1.6;
+      x.beginPath(); x.moveTo(cx + nx * h * 0.45, cy + ny * h * 0.45); x.lineTo(cx + nx * (r + h * 0.02), cy + ny * (r + h * 0.02)); x.stroke();
+    }
+    x.restore();
+  }
+  // Is the strip under the cover (where the numbers go) free of Tidal's player? Not when the
+  // player bar overlaps it, or when a button, text or picture of Tidal's is there.
+  function labelsFree(arc, labelH) {
+    var top = arc.bottom, bottom = arc.bottom + labelH;
+    if (bottom > innerHeight || top < 0) return false; // not fully on screen
+    var bar = document.querySelector('[data-test="footer-player"]'), br = bar && rectOf(bar);
+    if (br && br.top < bottom && br.bottom > top && br.left < arc.right && br.right > arc.left) return false;
+    for (var i = 0; i < 7; i++) {
+      var px = arc.left + arc.width * (i + 0.5) / 7, py = top + labelH / 2;
+      if (px < 0 || py < 0 || px >= innerWidth || py >= innerHeight) continue;
+      var el = document.elementFromPoint(px, py);
+      if (!el || el.tagName === 'CANVAS') continue;
+      if (el.closest('button,a,time,input,img,svg,[role="slider"],[data-test="progress-bar"]')) return false;
+      for (var c = el.firstChild; c; c = c.nextSibling) if (c.nodeType === 3 && c.nodeValue.trim()) return false;
+    }
+    return true;
+  }
+  // How far down the cover something of Tidal's (its header) lies over its top corners, in CSS
+  // px from the cover's top: the first height where both corners show the cover itself.
+  function shownTop(art, arc) {
+    var xs = [arc.left + arc.width * 0.12, arc.right - arc.width * 0.12];
+    for (var y = Math.max(arc.top, 0) + 1; y < arc.top + arc.height * 0.5; y += 4) {
+      if (y >= innerHeight) break;
+      var clear = true;
+      for (var i = 0; i < 2 && clear; i++) {
+        var el = document.elementFromPoint(xs[i], y);
+        if (el && el !== art && !art.contains(el) && !el.contains(art)) clear = false;
+      }
+      if (clear) return Math.max(0, y - 1 - arc.top);
+    }
+    return 0;
+  }
+  // What lies over the cover (Tidal's header over its top, its player bar over the numbers) is
+  // looked at when the player opens and when the screen changes size (rotating, unfolding, Text
+  // size): right away and again once Tidal's layout has settled. Not on a timer.
+  var layoutTimers = [];
+  function layoutSoon() {
+    layoutTimers.forEach(clearTimeout);
+    VZ.layoutDue = true;
+    layoutTimers = [300, 900].map(function (ms) { return setTimeout(function () { VZ.layoutDue = true; }, ms); });
+  }
+  addEventListener('resize', layoutSoon);
+  if (window.visualViewport) visualViewport.addEventListener('resize', layoutSoon);
+  // ...and when the player scrolls (landscape: the cover can slide under the header). Only once
+  // the scrolling stops.
+  var scrollWait = 0;
+  addEventListener('scroll', function () {
+    if (!VZ.cover) return;
+    clearTimeout(scrollWait);
+    scrollWait = setTimeout(function () { VZ.layoutDue = true; }, 150);
+  }, { capture: true, passive: true });
+  // ---- Each frame ----
+  var vizLast = 0, vizTimer = 0;
+  function vizCover() { // the full-screen player's cover, if it's showing
+    if (!((fairStore && playerOpen()) || playerTabsShown())) return null;
+    var art = document.querySelector('[data-test="now-playing-artwork"]');
+    return art && art.offsetWidth > 40 && art.parentElement ? art : null;
+  }
+  function vizFrame() {
+    vizTimer = 0;
+    var now = performance.now(), dt = vizLast ? Math.min(0.1, (now - vizLast) / 1000) : 0;
+    vizLast = now;
+    var cfg = VZ.cfg, art = vizCover(), playing = false;
+    try { playing = fairStore.getState().playbackControls.playbackState === 'PLAYING'; } catch (e) { var me = media(); playing = !!(me && !me.paused); }
+    // The player bar's spot (worked out twice a second: it measures the bar's text).
+    if (now - VZ.miniAt > 500) {
+      VZ.miniAt = now;
+      var mr = 'off';
+      try { mr = miniRect(); } catch (e) {}
+      VZ.lastMini = mr === 'off' ? null : mr.split('|')[0].split(',').map(Number);
+    }
+    if (playing) VZ.miniPlayedAt = now;
+    var wantCover = !!art && (cfg.analyzerOn || cfg.vuOn), wantMini = !!VZ.lastMini && now - (VZ.miniPlayedAt || 0) < 3000;
+    var want = (wantCover || wantMini) && !document.hidden;
+    if (want !== VZ.wanted) { VZ.wanted = want; try { WaveApp.capture(want); } catch (e) {} }
+    var data = null;
+    if (want) { try { data = String(WaveApp.levels(wantCover && cfg.analyzerOn ? 40 : 0, wantMini ? 32 : 0)).split('|'); } catch (e) {} }
+    var hearing = !!data && data[0] === '1', lowHz = data ? parseFloat(data[1]) || 46.9 : 46.9;
+    var rms = data ? parseFloat(data[2]) : -96, pk = data ? parseFloat(data[3]) : -96;
+    var coverDb = data && data[4] ? data[4].split(',').map(Number) : null, miniDb = data && data[5] ? data[5].split(',').map(Number) : null;
+    // Over the cover.
+    var cv = VZ.cover;
+    if (wantCover) {
+      // Right after the cover, in the same parent, at the cover's own offsets: the same containing
+      // block, so it's always exactly on the cover however Tidal scrolls or moves its player
+      // (at 130% in landscape it's moved up). A swipe's movement is copied over.
+      if (!cv || !cv.canvas.isConnected || cv.canvas.previousElementSibling !== art) {
+        if (cv && cv.canvas.parentElement) cv.canvas.parentElement.removeChild(cv.canvas);
+        cv = VZ.cover = { canvas: canvasIn(art.parentElement, 'cover', art), bars: vizBars(40), vu: vuMeter('VU'), pk: vuMeter('PEAK'), level: 0 };
+        layoutSoon(); // the player just opened: look at what's over the cover (again once it has settled)
+      }
+      if (VZ.layoutDue) {
+        VZ.layoutDue = false;
+        cv.shownTop = shownTop(art, art.getBoundingClientRect());
+        cv.labelsFree = labelsFree(art.getBoundingClientRect(), 16);
+      }
+      var arc = art.getBoundingClientRect();
+      var aw = art.offsetWidth, ah = art.offsetHeight, labelH = 16;
+      cv.canvas.style.left = art.offsetLeft + 'px';
+      cv.canvas.style.top = art.offsetTop + 'px';
+      cv.canvas.style.transform = art.style.transform || '';
+      cv.canvas.style.opacity = art.style.opacity || '';
+      var x = fit(cv.canvas, aw, ah + labelH);
+      var f = stepBars(cv.bars, coverDb, dt, now, hearing);
+      if (cfg.analyzerOn && f > 0.003) {
+        var bh = Math.max(40, Math.min(160, ah * 0.22));
+        drawBars(x, cv.bars, 0, ah - bh, aw, bh, VZ.color.cover, (cfg.analyzerOpacity / 100) * f);
+        // The frequency numbers under the cover: switched on in the Wave tab, and only where
+        // nothing of Tidal's player is drawn over them (landscape: the player bar).
+        x.font = '500 10px sans-serif';
+        x.textAlign = 'center';
+        x.fillStyle = 'rgba(255,255,255,' + (0.7 * f) + ')';
+        var range = Math.log(20000 / lowHz);
+        for (var li = 0; cfg.labelsOn && cv.labelsFree && li < LABEL_HZ.length; li++) {
+          if (LABEL_HZ[li] < lowHz) continue;
+          var half = x.measureText(LABELS[li]).width / 2, lx = aw * Math.log(LABEL_HZ[li] / lowHz) / range;
+          x.fillText(LABELS[li], Math.max(half, Math.min(aw - half, lx)), ah + 12);
+        }
+      }
+      if (cfg.vuOn) {
+        stepMeter(cv.vu, rms, pk, dt, now, hearing);
+        stepMeter(cv.pk, rms, pk, dt, now, hearing);
+        // In the top corners of the part of the cover that shows: Tidal's header can lie over the
+        // top of it (130% in landscape), so the meters go just below it.
+        var mw = aw * 0.3, mh = mw * 0.62, inset = aw * 0.035, va = ((cfg.vuMatch ? cfg.analyzerOpacity : cfg.vuOpacity) / 100) * f;
+        var my = Math.min((cv.shownTop || 0) + inset, ah * 0.5);
+        drawMeter(x, cv.vu, inset, my, mw, mh, VZ.color.cover, va, cfg.vuStyle === 1);
+        drawMeter(x, cv.pk, aw - inset - mw, my, mw, mh, VZ.color.cover, va, cfg.vuStyle === 1);
+      }
+    } else if (cv) {
+      if (cv.canvas.parentElement) cv.canvas.parentElement.removeChild(cv.canvas);
+      VZ.cover = null;
+    }
+    // In the player bar.
+    var mv = VZ.mini, footer = document.querySelector('[data-test="footer-player"]');
+    if (wantMini && footer) {
+      if (!mv || !mv.canvas.isConnected || mv.canvas.parentElement !== footer) {
+        if (mv && mv.canvas.parentElement) mv.canvas.parentElement.removeChild(mv.canvas);
+        mv = VZ.mini = { canvas: canvasIn(footer, 'mini'), bars: vizBars(32) };
+      }
+      var fr = footer.getBoundingClientRect(), r = VZ.lastMini;
+      mv.canvas.style.left = (r[0] - fr.left - footer.clientLeft) + 'px';
+      mv.canvas.style.top = (r[1] - fr.top - footer.clientTop) + 'px';
+      var mx = fit(mv.canvas, r[2], r[3]), mf = stepBars(mv.bars, miniDb, dt, now, hearing && playing);
+      if (mf > 0.003) drawBars(mx, mv.bars, 0, 0, r[2], r[3], VZ.color.mini, mf);
+    } else if (mv) {
+      if (mv.canvas.parentElement) mv.canvas.parentElement.removeChild(mv.canvas);
+      VZ.mini = null;
+    }
+    // Every frame while something shows; otherwise a look twice a second.
+    if (want) requestAnimationFrame(vizFrame); else { vizLast = 0; vizTimer = setTimeout(vizFrame, 500); }
+  }
+  vizTimer = setTimeout(vizFrame, 500);
+
+  // ---------- Song rows that fit ----------
+  // In Tidal's wide layout (side panel open) on a narrow page (a bigger Text size on a foldable),
+  // the song list can be narrower than a row: the title column keeps its width and pushes the
+  // row's ... menu off the edge (seen with Wave Probe 7). Here the title column shrinks instead,
+  // and a long title ends in "…".
+  (function () {
+    function add() {
+      if (document.getElementById('wave-rows-css') || !document.head) return !!document.getElementById('wave-rows-css');
+      var st = document.createElement('style');
+      st.id = 'wave-rows-css';
+      st.textContent =
+        '[data-test="tracklist-row"]{min-width:0!important;max-width:100%!important}' +
+        // Only allowed to shrink: rows that fit stay exactly as Tidal draws them.
+        '[data-test="tracklist-row"]>[data-test="table-row-title"]{flex-shrink:1!important;min-width:0!important;overflow:hidden}' +
+        '[data-test="table-row-title"]>*{min-width:0!important;overflow:hidden}' +
+        '[data-test="table-cell-title"]{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}';
+      document.head.appendChild(st);
+      return true;
+    }
+    if (!add()) { var t = setInterval(function () { if (add()) clearInterval(t); }, 300); }
+  })();
 
   // ---------- Tap a song to play it (Wave Mobile) ----------
   // A tap anywhere on a song in a list (number, cover, title, artist) plays it, instead of

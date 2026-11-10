@@ -48,6 +48,12 @@ In the full-screen player:
 
 Swipes that start on the player bar (its buttons and seek bar) are left to Tidal.
 
+Tidal's page is drawn at the same size on every phone, whatever the phone's own font size. **Text size** in Settings → Wave tab → Display (80–130%) makes the whole page bigger or smaller together (text, rows and buttons), so nothing overlaps. Tidal's phone layout needs the page at least 360 px wide, so a narrow screen gets as much of the size as fits (e.g. about 114% on a 412 dp phone), and a wider one, unfolded or in landscape, gets more.
+
+### Audio quality on Wi-Fi and mobile data
+
+In **Settings → General**, Tidal's single audio quality is replaced by two: **On Wi-Fi** and **On mobile data**, each with Low (96 or 320 kbps), High and Max. Wave tells Tidal the right one whenever the phone switches networks, also in the background and in the car. Both start as the quality chosen before. Adaptive streaming stays as Tidal has it.
+
 While music plays, a notification shows the song, artist, cover and progress, with previous, play/pause and next. These buttons, the lock screen, headphone buttons and Android Auto all send Tidal's own player commands, the same ones its player buttons send.
 
 ### Android Auto
@@ -61,16 +67,26 @@ Wave Mobile shows up in Android Auto as a media app with play/pause, next and pr
 
 Two analyzers in the colour of the song's cover (its strongest colour):
 
-- **Over the album art** in the full-screen player: 30% opaque bars standing on the cover's bottom edge, with the frequencies (from the lowest one Android measures, about 47 Hz, up to 20 kHz) just under the cover.
+- **Over the album art** in the full-screen player: see-through bars (30% to start) standing on the cover's bottom edge, with the frequencies (from the lowest one Android measures, about 47 Hz, up to 20 kHz) just under the cover.
 - **In the player bar**, between the time and the buttons on the right: solid bars, while music plays and the full-screen player is closed.
+
+Both fade in when there's sound and fade out with silence (and when playback pauses). The opacity of the one over the cover is set in Settings → Wave tab (30% to start).
+
+### VU meters
+
+Two needle meters sit inside the top corners of the cover in the full-screen player: **VU** (the averaged level, with a VU meter's slow needle; 0 VU = −18 dBFS) and **PEAK** (the peak level, a fast needle that falls back slowly; −40 to 0 dBFS). Android's capture is one combined signal, so they show two views of it rather than left and right. The needles take the cover's strongest colour, and the meters fade with the sound like the analyzers.
+
+**Meter style** picks how they look: **Analog** (needles) or **Digital** (LED bars in the cover's colour with a live reading, e.g. `−3.2 VU`, and the last peak held for a second).
+
+In Settings → Wave tab → **Player**: the spectrum analyzer, its **frequency numbers** (hidden by themselves wherever Tidal's player is drawn over them, like the player bar in landscape) and the VU meters can each be switched off, each has an opacity slider, and **Match the analyzer's opacity** makes the VU meters follow the analyzer's.
 
 An analyzer hides while a menu or dialog covers it.
 
 ## Stream quality
 
-Under the cover in the full-screen player, and in the notification, Wave shows what Tidal is actually streaming, from Tidal's own player: format, bit depth, sample rate and bit rate (for example `FLAC · 24-bit / 96 kHz · 2304 kbps`).
+Under the cover in the full-screen player, and in the notification, Wave shows what Tidal is actually streaming, from Tidal's own player: format, bit depth, sample rate and bit rate (for example `FLAC · 24-bit / 96 kHz · 2304 kbps`). Under the cover it has a faint glow in the quality's colour, as in Tidal's settings: white for Low, teal for High, gold for Max.
 
-Tidal's streams are DRM-protected, so the page can't read them; Android's Visualizer measures the TV's sound output instead. Android asks for the microphone permission for this the first time; nothing is recorded.
+The analyzers and meters are drawn inside Tidal's page (the app measures the sound and passes it to the page each frame), so Tidal's controls and menus sit on top of them, as in landscape where the player bar's buttons lie over the bottom of the cover. Tidal's streams are DRM-protected, so the page can't read them; Android's Visualizer measures the TV's sound output instead. Android asks for the microphone permission for this the first time; nothing is recorded.
 
 When the sound goes where Android can't measure it (Android Auto, for one), the bars hide instead of standing still. Android Auto draws its own player, so the analyzers aren't shown on the car's screen.
 
@@ -95,6 +111,14 @@ Tidal's **Settings** page gets a **Wave** tab next to General, Account and About
 
 Test builds (Wave Beta) don't update themselves; the official app updates as usual.
 
+## The song where you left it
+
+When Wave opens again, the song you were playing is where you left it: Tidal brings back its queue and song, and Wave moves the song to the position it was at. The position is saved every few seconds and whenever playback pauses or Wave goes to the background. Wave still opens on Tidal's home page.
+
+## Soft pause
+
+Pausing fades the song out over 0.8 s (in 200 small volume steps), then waits a moment for the sound already sent to the speaker to play out before stopping; playing again fades it back in over 0.8 s. It's switched on and off with **Soft pause** in Settings → General, just above Tidal's Crossfade setting (on by default). This works however it was paused or played (Tidal's buttons, the notification, headphones, Android Auto). Stopping mid-sound would click, more so with the spectrum analyzer in Android's effects chain. (From the TIDAL+ app in the Tidal- repo.)
+
 ## Background playback
 
 Music keeps playing when you leave the app or the screen turns off. Wave runs a small foreground service while playing and releases it 10 minutes after playback pauses.
@@ -106,6 +130,8 @@ Datadog usage tracking and the cookie-consent banner are answered empty without 
 ## If something goes wrong
 
 If Tidal's page process stops (for example when the TV runs low on memory), Wave reloads the page instead of closing. If Wave itself crashes, the next launch offers to share the details.
+
+With **Send crash reports automatically** on (Settings → Wave tab, off by default), the next time Wave opens after a crash it sends the details (app version, Android version, phone model and the error) to Wave's crash relay instead, which files them as an issue on this repository (public). The relay is a small Cloudflare Worker that holds the GitHub token, so the app never does: see [relay/README.md](relay/README.md).
 
 ## Building
 

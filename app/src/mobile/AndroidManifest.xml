@@ -4,6 +4,8 @@
     xmlns:tools="http://schemas.android.com/tools">
     <!-- The media notification (Android 13+ asks before showing notifications). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Which network is in use, for the separate Wi-Fi and mobile data audio quality. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- To read Android Auto's connection state (for playing on by itself when the car connects). -->
     <queries>
         <package android:name="com.google.android.projection.gearhead" />

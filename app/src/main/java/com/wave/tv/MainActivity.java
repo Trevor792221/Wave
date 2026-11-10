@@ -77,6 +77,9 @@ public final class MainActivity extends Activity {
         // A TV shouldn't dim while Wave is up; a phone keeps its normal screen timeout.
         if (BuildConfig.TV) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         prefs = getSharedPreferences("wave", MODE_PRIVATE);
+        prefs.edit().remove("textSize").apply(); // the first Text size test build's setting (it cut the page off)
+        coverAnalyzer.alpha = prefs.getInt("analyzerOpacity", 30) / 100f; // the Wave tab's settings
+        coverAnalyzer.enabled = prefs.getBoolean("analyzerOn", true);
         updater = new Updater(this);
         widthIndex = prefs.getInt("width", 1);
         ringMode = prefs.getBoolean("ring", BuildConfig.TV); // touch phones start without the ring
@@ -92,6 +95,10 @@ public final class MainActivity extends Activity {
         root.addView(web, new FrameLayout.LayoutParams(-1, -1));
         root.addView(cursor, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
+        // The page's width follows the screen's (rotating, unfolding) when Text size isn't 100%.
+        web.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (!BuildConfig.TV && r - l != or - ol && prefs.getInt("pageScale", 100) != 100) applyViewport();
+        });
         handler.post(this::autoCheckForUpdates); // once everything is set up
         if (!BuildConfig.TV) keepClearOfSystemBars();
 
@@ -102,6 +109,9 @@ public final class MainActivity extends Activity {
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setUseWideViewPort(true);
         s.setLoadWithOverviewMode(true);
+        // Tidal's page as designed on every phone: Android otherwise enlarges a page's text with the
+        // phone's font size setting, and Tidal's fixed-height song rows then run into each other.
+        s.setTextZoom(100);
         s.setSupportZoom(false);
         s.setSupportMultipleWindows(false); // window.open / target=_blank load in place
         // Use the WebView's real user agent. A fake desktop UA conflicts with the other signals
@@ -156,7 +166,10 @@ public final class MainActivity extends Activity {
                 v.evaluateJavascript(bridgeJs, null); // no-op if already installed
                 if (ringMode) v.evaluateJavascript("window.__wave&&__wave.ring()", null);
                 v.evaluateJavascript("window.__wave&&__wave.enableTapToPlay()", null); // TV and phone
-                if (!BuildConfig.TV) v.evaluateJavascript("window.__wave&&(__wave.phoneMode(),__wave.enableSwipes())", null);
+                if (!BuildConfig.TV) {
+                    v.evaluateJavascript("window.__wave&&(__wave.phoneMode(),__wave.enableSwipes())", null);
+                    tellNetwork();
+                }
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
@@ -205,10 +218,26 @@ public final class MainActivity extends Activity {
     /** Lay the site out at a desktop width and let the WebView scale it to the TV. */
     private void applyViewport() {
         if (!BuildConfig.TV) {
-            // Phones: the page at the phone's own width and normal size (Tidal's layout adapts).
-            web.evaluateJavascript("(function(){var m=document.querySelector('meta[name=viewport]');"
+            // Phones: the page at the phone's own width (Tidal's layout adapts), scaled by the Wave
+            // tab's Text size: a narrower page drawn to fill the screen makes everything bigger
+            // together (text, rows, buttons), so nothing runs into anything else.
+            // The zoom is fixed at exactly that size (minimum = maximum), so the page always fills the
+            // screen's width: the WebView only fits a page to the screen by itself when it loads.
+            int pct = Math.min(prefs.getInt("pageScale", 100), maxPageScale());
+            String content;
+            if (pct == 100) {
+                content = "width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1";
+            } else {
+                float dp = (web.getWidth() > 0 ? web.getWidth() : getResources().getDisplayMetrics().widthPixels) / density;
+                String sc = String.format(java.util.Locale.US, "%.2f", pct / 100f);
+                content = "width=" + Math.round(dp * 100f / pct) + ",initial-scale=" + sc + ",minimum-scale=" + sc
+                        + ",maximum-scale=" + sc + ",user-scalable=no";
+            }
+            web.evaluateJavascript("(function(c){var m=document.querySelector('meta[name=viewport]');"
                     + "if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}"
-                    + "m.content='width=device-width,initial-scale=1';})()", null);
+                    + "m.content=c;})('" + content + "')", null);
+            // A page that still doesn't fill the screen's width goes back to 100% (and says so).
+            if (pct != 100) web.evaluateJavascript("window.__wave&&__wave.checkFit&&__wave.checkFit()", null);
             return;
         }
         int w = VIEWPORT_WIDTHS[widthIndex];
@@ -216,6 +245,18 @@ public final class MainActivity extends Activity {
                 "(function(w){var m=document.querySelector('meta[name=viewport]');"
                         + "if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}"
                         + "m.content='width='+w;})(" + w + ")", null);
+    }
+
+    /**
+     * Tidal's phone layout needs the page at least MIN_PAGE_WIDTH CSS px wide: narrower, its fixed
+     * player bar and tabs run off the screen. So Text size goes only as high as this screen allows
+     * (the size picked is kept: a wider screen, unfolded or in landscape, gets more of it).
+     */
+    private static final int MIN_PAGE_WIDTH = 360;
+
+    private int maxPageScale() {
+        float dp = (web.getWidth() > 0 ? web.getWidth() : getResources().getDisplayMetrics().widthPixels) / density;
+        return Math.max(100, (int) Math.floor(dp * 100f / MIN_PAGE_WIDTH));
     }
 
     // ---------- Remote control -> pointer ----------
@@ -481,6 +522,40 @@ public final class MainActivity extends Activity {
         WaveSession.get(this);
         WaveSession.attach(this);
         watchCarConnection();
+        watchNetwork();
+    }
+
+    // ---------- Wi-Fi or mobile data (Wave Mobile) ----------
+    // The page picks Tidal's audio quality for the network in use ("wifi" or "cell"); anything
+    // that isn't mobile data (Wi-Fi, Ethernet...) counts as Wi-Fi.
+    private String network = "wifi";
+    private android.net.ConnectivityManager.NetworkCallback networkCallback;
+
+    private void watchNetwork() {
+        if (BuildConfig.TV || Build.VERSION.SDK_INT < 24) return;
+        android.net.ConnectivityManager cm = getSystemService(android.net.ConnectivityManager.class);
+        if (cm == null) return;
+        networkCallback = new android.net.ConnectivityManager.NetworkCallback() {
+            @Override
+            public void onCapabilitiesChanged(android.net.Network n, android.net.NetworkCapabilities caps) {
+                String now = caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)
+                        && !caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) ? "cell" : "wifi";
+                handler.post(() -> {
+                    if (now.equals(network)) return;
+                    network = now;
+                    tellNetwork();
+                });
+            }
+        };
+        try {
+            cm.registerDefaultNetworkCallback(networkCallback, handler);
+        } catch (RuntimeException e) {
+            networkCallback = null;
+        }
+    }
+
+    private void tellNetwork() {
+        if (web != null) web.evaluateJavascript("window.__wave&&__wave.setNetwork('" + network + "')", null);
     }
 
     // ---------- Android Auto (Wave Mobile) ----------
@@ -682,8 +757,9 @@ public final class MainActivity extends Activity {
     /** JS -> Java. Called on a WebView thread, so hop to the main thread. */
     private final class Bridge {
         @JavascriptInterface
-        public void state(boolean nowPlaying, String t, String a, String art, double durMs, double posMs, String q, boolean fav) {
+        public void state(boolean nowPlaying, String t, String a, String art, double durMs, double posMs, String q, boolean fav, String tier) {
             handler.post(() -> {
+                qualityTier = tier == null ? "" : tier;
                 setQuality(q == null ? "" : q);
                 WaveSession.setFavorite(fav);
                 onPageState(nowPlaying, t == null ? "" : t, a == null ? "" : a, art == null ? "" : art,
@@ -707,10 +783,84 @@ public final class MainActivity extends Activity {
         public String appInfo() {
             try {
                 return new org.json.JSONObject().put("name", Updater.appName()).put("version", BuildConfig.VERSION_NAME)
-                        .put("auto", prefs.getBoolean("autoUpdate", true)).toString();
+                        .put("auto", prefs.getBoolean("autoUpdate", true))
+                        .put("crashAuto", prefs.getBoolean("crashAuto", false))
+                        .put("analyzerOpacity", prefs.getInt("analyzerOpacity", 30))
+                        .put("analyzerOn", prefs.getBoolean("analyzerOn", true))
+                        .put("labelsOn", prefs.getBoolean("labelsOn", true))
+                        .put("vuOn", prefs.getBoolean("vuOn", true))
+                        .put("vuOpacity", prefs.getInt("vuOpacity", 60))
+                        .put("vuMatch", prefs.getBoolean("vuMatch", false))
+                        .put("vuStyle", prefs.getInt("vuStyle", 0))
+                        .put("textSize", prefs.getInt("pageScale", 100))
+                        .put("textSizeMax", maxPageScale())
+                        .put("phone", !BuildConfig.TV)
+                        .put("beta", BuildConfig.BETA)
+                        .put("crashRelay", CrashReports.available()).toString();
             } catch (org.json.JSONException e) {
                 return "{}";
             }
+        }
+
+        /** Wave Beta only: crashes on purpose (and opens again), to try the crash reports. */
+        @JavascriptInterface
+        public void testCrash() {
+            if (!BuildConfig.BETA) return;
+            restartAfterCrash = true;
+            handler.postDelayed(() -> {
+                throw new IllegalStateException("Test crash from the Wave tab (Wave Beta)");
+            }, 300);
+        }
+
+        /** Opacity of the analyzer over the cover, in percent (the Wave tab's slider). */
+        @JavascriptInterface
+        public void setAnalyzerOpacity(int pct) {
+            int v = Math.max(0, Math.min(100, pct));
+            prefs.edit().putInt("analyzerOpacity", v).apply();
+            handler.post(() -> {
+                coverAnalyzer.alpha = v / 100f;
+                if (coverAnalyzer.view != null) coverAnalyzer.view.setBarAlpha(v / 100f);
+            });
+        }
+
+        // ---- Analyzers and meters drawn by the page ----
+        /** The latest sound measurement for the page's analyzers and meters (see SpectrumView.frame). */
+        @JavascriptInterface
+        public String levels(int coverBars, int miniBars) {
+            return SpectrumView.frame(Math.max(0, Math.min(64, coverBars)), Math.max(0, Math.min(64, miniBars)));
+        }
+
+        /** The page is drawing analyzers or meters (true) or not: the capture runs only then. */
+        @JavascriptInterface
+        public void capture(boolean on) {
+            handler.post(() -> {
+                captureWanted = on;
+                updateCapture();
+            });
+        }
+
+        /** The Wave tab's player settings: analyzerOn, vuOn, vuMatch (0/1), vuOpacity (percent), vuStyle (0 analog, 1 digital). */
+        @JavascriptInterface
+        public void setSetting(String key, int value) {
+            SharedPreferences.Editor e = prefs.edit();
+            switch (key == null ? "" : key) {
+                case "analyzerOn": case "labelsOn": case "vuOn": case "vuMatch": e.putBoolean(key, value != 0); break;
+                case "vuOpacity": e.putInt(key, Math.max(0, Math.min(100, value))); break;
+                case "vuStyle": e.putInt(key, value == 1 ? 1 : 0); break;
+                case "textSize": e.putInt("pageScale", Math.max(80, Math.min(130, value))); break;
+                default: return;
+            }
+            e.apply();
+            handler.post(() -> {
+                coverAnalyzer.enabled = prefs.getBoolean("analyzerOn", true);
+                updateSpectrum();
+                if ("textSize".equals(key)) applyViewport();
+            });
+        }
+
+        @JavascriptInterface
+        public void setCrashAuto(boolean on) {
+            prefs.edit().putBoolean("crashAuto", on).apply();
         }
 
         @JavascriptInterface
@@ -761,7 +911,19 @@ public final class MainActivity extends Activity {
     private void updateSpectrum() {
         coverAnalyzer.update();
         barAnalyzer.update();
+        updateCapture();
     }
+
+    // ---------- The sound capture for the page's analyzers and meters ----------
+    /** The page draws the analyzers and meters; the app measures the sound while it wants it. */
+    private boolean captureWanted;
+    private final Object captureUser = new Object();
+
+    private void updateCapture() {
+        if (captureWanted && visible && micAllowed()) SpectrumView.acquire(this, captureUser);
+        else SpectrumView.release(captureUser);
+    }
+
 
     /** The highlight ring takes the analyzers' colour (the cover's strongest). */
     private void setRingColor(int rgb) {
@@ -835,9 +997,50 @@ public final class MainActivity extends Activity {
     // Under the cover in the full-screen player (below the analyzer's frequencies), and in the
     // notification: what Tidal is actually streaming.
     private android.widget.TextView qualityView;
+    /** Tidal's quality code for what's streaming (LOW, HIGH, LOSSLESS, HI_RES_LOSSLESS). */
+    private String qualityTier = "", shownTier = null;
+
+    /** The quality's colour, as in Tidal's settings: Low white, High teal, Max gold (0 = none). */
+    private static int tierColor(String tier) {
+        switch (tier) {
+            case "HI_RES_LOSSLESS": case "HI_RES": return 0xFFFFD432;
+            case "LOSSLESS": return 0xFF5CF2DC;
+            case "HIGH": case "LOW": return 0xFFFFFFFF;
+            default: return 0;
+        }
+    }
+
+    /** A faint elliptical glow of a colour, fading out to the edges of the view. */
+    private static final class Glow extends android.graphics.drawable.Drawable {
+        private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final int color;
+
+        Glow(int color) {
+            this.color = color;
+        }
+
+        @Override
+        public void draw(android.graphics.Canvas c) {
+            android.graphics.Rect b = getBounds();
+            if (b.isEmpty()) return;
+            android.graphics.RadialGradient g = new android.graphics.RadialGradient(0, 0, 1,
+                    new int[]{(0x38 << 24) | (color & 0xFFFFFF), (0x14 << 24) | (color & 0xFFFFFF), color & 0xFFFFFF},
+                    new float[]{0f, 0.55f, 1f}, android.graphics.Shader.TileMode.CLAMP);
+            android.graphics.Matrix m = new android.graphics.Matrix();
+            m.setScale(b.width() / 2f, b.height() / 2f);
+            m.postTranslate(b.exactCenterX(), b.exactCenterY());
+            g.setLocalMatrix(m);
+            paint.setShader(g);
+            c.drawRect(b, paint);
+        }
+
+        @Override public void setAlpha(int a) { }
+        @Override public void setColorFilter(android.graphics.ColorFilter f) { }
+        @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
+    }
 
     private void setQuality(String q) {
-        if (q.equals(WaveSession.quality())) return;
+        if (q.equals(WaveSession.quality()) && qualityTier.equals(shownTier)) return;
         WaveSession.setQuality(q);
         placeQuality();
         if (serviceOn) PlaybackService.refresh(this);
@@ -846,14 +1049,17 @@ public final class MainActivity extends Activity {
     private void placeQuality() {
         String q = WaveSession.quality();
         String[] p = coverAnalyzer.spot.split("\\|", 2)[0].split(",");
-        if (!visible || q.isEmpty() || p.length != 5) {
+        // Not when the cover's bottom is hidden (by the player bar in landscape): no room under it.
+        if (!visible || q.isEmpty() || p.length < 5 || (p.length > 6 && "1".equals(p[6]))) {
             if (qualityView != null) qualityView.setVisibility(View.GONE);
             return;
         }
         if (qualityView == null) {
             qualityView = new android.widget.TextView(this);
             qualityView.setTextColor(0xB3FFFFFF);
-            qualityView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12);
+            qualityView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
+            int ph = Math.round(28 * density), pv = Math.round(8 * density);
+            qualityView.setPadding(ph, pv, ph, pv); // room for the glow around the text
             qualityView.setGravity(android.view.Gravity.CENTER);
             qualityView.setSingleLine(true);
             root.addView(qualityView, 1);
@@ -864,25 +1070,61 @@ public final class MainActivity extends Activity {
             int bottom = Math.round((Float.parseFloat(p[1]) + Float.parseFloat(p[3])) * scale);
             // Below the frequency labels (12sp + a little) whether or not the analyzer is showing.
             int labels = Math.round(10 * getResources().getDisplayMetrics().scaledDensity + 4 * density);
-            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(w, -2);
-            lp.leftMargin = l;
-            lp.topMargin = bottom + labels + Math.round(4 * density);
+            // As wide as the text (plus the glow's room), centred under the cover.
+            qualityView.setText(q);
+            qualityView.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.AT_MOST), View.MeasureSpec.UNSPECIFIED);
+            int qw = qualityView.getMeasuredWidth();
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(qw, -2);
+            lp.leftMargin = l + (w - qw) / 2;
+            lp.topMargin = bottom + labels; // the padding keeps the text where it was
             qualityView.setLayoutParams(lp);
         } catch (NumberFormatException e) {
             return;
         }
-        qualityView.setText(q);
+        if (!qualityTier.equals(shownTier)) {
+            shownTier = qualityTier;
+            int c = tierColor(qualityTier);
+            qualityView.setBackground(c == 0 ? null : new Glow(c));
+        }
         qualityView.setVisibility(View.VISIBLE);
     }
 
     private final class Analyzer {
         final int bars;
         final boolean labels, onlyWhilePlaying;
-        final float alpha;
+        float alpha;
+        /** Switched on in the Wave tab (the analyzer over the cover can be switched off). */
+        boolean enabled = true;
+        /** Asked to hide: fades out after a moment (unless it's wanted again by then). */
+        boolean hiding;
         /** "l,t,w,h,viewportWidth|coverUrl" in CSS px, or "off". */
         String spot = "off";
         String coverUrl = "";
         SpectrumView view;
+        private static final long PAUSED_STOP_MS = 3000;
+        private final Runnable hideSoon = () -> {
+            if (!hiding || view == null) return;
+            SpectrumView v = view;
+            v.animate().cancel();
+            v.animate().alpha(0f).setDuration(300).withEndAction(() -> {
+                if (hiding && view == v) hideNow();
+            }).start();
+        };
+        /** Paused for a while: the bars have faded with the sound by now, so stop measuring. */
+        private boolean stopPending;
+        private final Runnable stopWhenPaused = () -> {
+            stopPending = false;
+            if (!playing && view != null && view.getVisibility() == View.VISIBLE) hideNow();
+        };
+
+        void hideNow() {
+            hiding = false;
+            if (view == null) return;
+            view.animate().cancel();
+            view.setAlpha(1f);
+            view.stop();
+            view.setVisibility(View.GONE);
+        }
 
         Analyzer(int bars, boolean labels, float alpha, boolean onlyWhilePlaying) {
             this.bars = bars;
@@ -892,14 +1134,46 @@ public final class MainActivity extends Activity {
         }
 
         void update() {
-            String[] parts = spot.split("\\|", 2);
+            String[] parts = spot.split("\\|", 3);
             String[] p = parts[0].split(",");
-            if (!visible || p.length != 5 || (onlyWhilePlaying && !playing) || !micAllowed()) {
-                if (view != null) {
-                    view.stop();
-                    view.setVisibility(View.GONE);
+            // What's seen is the sound: the bars fade in with it and out with silence (SpectrumView).
+            // Paused, the analyzer just goes quiet and fades with the sound; it's stopped a few
+            // seconds later, once it has faded. Anything else that hides it (the full-screen player,
+            // a menu, Tidal redrawing its bar) has to last a moment before it fades out, so a quick
+            // redraw doesn't make it blink.
+            if (onlyWhilePlaying && playing) {
+                handler.removeCallbacks(stopWhenPaused);
+                stopPending = false;
+            } else if (onlyWhilePlaying && !stopPending && view != null && view.getVisibility() == View.VISIBLE) {
+                stopPending = true; // once per pause, not pushed back by every update
+                handler.postDelayed(stopWhenPaused, PAUSED_STOP_MS);
+            }
+            // The page draws the analyzers now; here only the cover's colour is worked out (for
+            // the page's bars and needles and the highlight ring).
+            if (p.length >= 5) colorFromCover(parts.length > 1 ? parts[1] : "");
+            if (p.length >= 0) return;
+            boolean show = enabled && visible && p.length >= 5 && micAllowed() && (playing || !onlyWhilePlaying
+                    || (view != null && view.getVisibility() == View.VISIBLE));
+            if (!show) {
+                if (view == null || view.getVisibility() != View.VISIBLE) return;
+                if (!visible || !micAllowed() || !enabled) { // left the screen or switched off: no fade
+                    handler.removeCallbacks(hideSoon);
+                    hideNow();
+                    return;
+                }
+                if (!hiding) {
+                    hiding = true;
+                    handler.postDelayed(hideSoon, 300);
                 }
                 return;
+            }
+            if (hiding) { // wanted again: still showing (or fading back from a short fade)
+                hiding = false;
+                handler.removeCallbacks(hideSoon);
+                if (view != null) {
+                    view.animate().cancel();
+                    view.animate().alpha(1f).setDuration(200).start();
+                }
             }
             int l, t, w, h;
             try {
@@ -925,13 +1199,20 @@ public final class MainActivity extends Activity {
             colorFromCover(parts.length > 1 ? parts[1] : "");
         }
 
+        /** The cover's colour: the page's bars and needles, and the highlight ring. */
+        private void coverColor(int c) {
+            setRingColor(c);
+            web.evaluateJavascript(String.format(java.util.Locale.US,
+                    "window.__wave&&__wave.setVizColor&&__wave.setVizColor('%s','#%06X')",
+                    this == coverAnalyzer ? "cover" : "mini", c & 0xFFFFFF), null);
+        }
+
         /** Downloads a small copy of the cover and gives the bars its strongest colour. */
         private void colorFromCover(String url) {
             if (url.equals(coverUrl)) return;
             coverUrl = url;
             if (!url.startsWith("https://")) {
-                view.setColor(SpectrumView.DEFAULT_COLOR);
-                setRingColor(SpectrumView.DEFAULT_COLOR);
+                coverColor(SpectrumView.DEFAULT_COLOR);
                 return;
             }
             // Tidal serves covers in several sizes; 160x160 is plenty for picking a colour.
@@ -943,10 +1224,7 @@ public final class MainActivity extends Activity {
                 if (bmp != null) c = SpectrumView.strongestColor(bmp);
                 int color = c;
                 handler.post(() -> {
-                    if (url.equals(coverUrl) && view != null) {
-                        view.setColor(color);
-                        setRingColor(color);
-                    }
+                    if (url.equals(coverUrl)) coverColor(color);
                 });
             }).start();
         }
@@ -979,6 +1257,8 @@ public final class MainActivity extends Activity {
     // A crash's details are kept in a file; next launch offers to share them (then deletes them).
 
     private static boolean crashLogInstalled;
+    /** A test crash (Wave Beta's Wave tab): Wave opens again right after it. */
+    private static volatile boolean restartAfterCrash;
 
     private void installCrashLog() {
         if (!crashLogInstalled) {
@@ -989,6 +1269,17 @@ public final class MainActivity extends Activity {
                 java.io.StringWriter sw = new java.io.StringWriter();
                 e.printStackTrace(new java.io.PrintWriter(sw));
                 writeCrashLog(app, "Crash on thread " + thread.getName() + ":\n" + sw);
+                if (restartAfterCrash) {
+                    // Open Wave again (it's still on screen, so Android allows it), then end this process.
+                    try {
+                        app.startActivity(new Intent(app, MainActivity.class)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+                    } catch (RuntimeException ignored) {
+                        // Opened by hand then.
+                    }
+                    android.os.Process.killProcess(android.os.Process.myPid());
+                    System.exit(10);
+                }
                 if (previous != null) previous.uncaughtException(thread, e);
             });
         }
@@ -1002,8 +1293,18 @@ public final class MainActivity extends Activity {
         } catch (java.io.IOException e) {
             text = "(couldn't read the crash log)";
         }
-        f.delete();
         String report = text;
+        // Sent to Wave's issues by itself (Wave tab switch): the file stays until the relay has it,
+        // so a failed send is tried again next time.
+        if (CrashReports.available() && getSharedPreferences("wave", MODE_PRIVATE).getBoolean("crashAuto", false)) {
+            CrashReports.send(report, ok -> runOnUiThread(() -> {
+                if (!ok) return;
+                f.delete();
+                Toast.makeText(this, "Wave stopped last time: the crash report was sent", Toast.LENGTH_SHORT).show();
+            }));
+            return;
+        }
+        f.delete();
         new android.app.AlertDialog.Builder(this)
                 .setTitle("Wave stopped last time")
                 .setMessage("Share the details so it can be fixed?")
@@ -1045,6 +1346,17 @@ public final class MainActivity extends Activity {
         web.saveState(out);
     }
 
+    /**
+     * Rotating, unfolding or folding: Wave keeps running (the music doesn't stop); the page just
+     * resizes. Once it has, the analyzers, meters and quality line are placed again.
+     */
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration c) {
+        super.onConfigurationChanged(c);
+        handler.postDelayed(() -> web.evaluateJavascript("window.__wave&&__wave.spot&&__wave.spot()", null), 400);
+        handler.postDelayed(() -> web.evaluateJavascript("window.__wave&&__wave.spot&&__wave.spot()", null), 1200);
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -1058,6 +1370,7 @@ public final class MainActivity extends Activity {
     protected void onStop() {
         super.onStop();
         visible = false;
+        web.evaluateJavascript("window.__wave&&__wave.saveResume&&__wave.saveResume()", null); // the song's position
         updateSpectrum(); // stops it: nothing to draw while Wave isn't on screen
         CookieManager.getInstance().flush(); // keep the Tidal login
         // Keep the page running while music plays or was paused only a short while ago (a phone
@@ -1075,8 +1388,16 @@ public final class MainActivity extends Activity {
         stopPlaybackService();
         WaveSession.detach(this);
         if (carReceiver != null) unregisterReceiver(carReceiver);
+        if (networkCallback != null) {
+            try {
+                getSystemService(android.net.ConnectivityManager.class).unregisterNetworkCallback(networkCallback);
+            } catch (RuntimeException ignored) {
+                // Already gone.
+            }
+        }
         // The analyzers share one capture across activities: let it go with this one.
         if (coverAnalyzer.view != null) coverAnalyzer.view.stop();
+        SpectrumView.release(captureUser);
         if (barAnalyzer.view != null) barAnalyzer.view.stop();
         // Already removed and destroyed if the page's process died (see onRenderProcessGone).
         if (web.getParent() != null) {

@@ -33,13 +33,16 @@ final class SpectrumView extends View {
 
     // ---- The shared capture ----
     private static Visualizer visualizer;
-    private static final Set<SpectrumView> running = new HashSet<>();
+    /** Everything using the capture: analyzers and VU meters. */
+    private static final Set<Object> running = new HashSet<>();
     private static byte[] fft;
     private static int fftRateMilliHz;
     private static long fftVersion;
     /** When the capture last heard anything, and when it started (uptimeMillis). */
     private static long heardAt, startedAt;
-    private static final long SILENT_HIDE_MS = 3000;
+    /** Silence this long and the bars fade out (they fade back in as soon as there's sound). */
+    private static final long SILENT_HIDE_MS = 500;
+    private static final float FADE_IN_S = 0.4f, FADE_OUT_S = 0.6f;
     private static android.media.AudioManager audio;
     /** Sound moved to another output (Android Auto, Bluetooth, headphones): capture it there. */
     private static final android.media.AudioDeviceCallback ROUTE = new android.media.AudioDeviceCallback() {
@@ -85,7 +88,11 @@ final class SpectrumView extends View {
     // ---- This analyzer ----
     private final int bars;
     private final boolean labels;
-    private final float barAlpha, peakAlpha;
+    private float barAlpha, peakAlpha;
+    /** 0..1: how far faded in (sound) or out (silence); multiplies the bars' and labels' opacity. */
+    private float shownLevel;
+    private int drawnColor = DEFAULT_COLOR;
+
     private final float[] target, shown, peak;
     private final long[] peakAt;
     private final Paint barPaint = new Paint(), peakPaint = new Paint(), labelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -133,7 +140,17 @@ final class SpectrumView extends View {
         color = rgb;
     }
 
+
+
+    /** The bars' opacity (0..1), e.g. from the Wave tab's slider; the peaks stay a little stronger. */
+    void setBarAlpha(float a) {
+        barAlpha = Math.max(0f, Math.min(1f, a));
+        peakAlpha = Math.min(1f, barAlpha + 0.1f);
+        applyColor(drawnColor);
+    }
+
     private void applyColor(int rgb) {
+        drawnColor = rgb;
         barPaint.setColor((Math.round(barAlpha * 255) << 24) | (rgb & 0xFFFFFF));
         // Peak markers: the same colour lightened towards white, a little stronger than the bars.
         int r = (((rgb >> 16) & 0xFF) + 255) / 2, g = (((rgb >> 8) & 0xFF) + 255) / 2, b = ((rgb & 0xFF) + 255) / 2;
@@ -178,25 +195,59 @@ final class SpectrumView extends View {
 
     /** Starts this analyzer (the microphone permission must already be granted). */
     void start() {
-        if (!running.add(this)) return;
-        if (visualizer == null) open();
-        if (audio == null) {
-            audio = (android.media.AudioManager) getContext().getApplicationContext().getSystemService(Context.AUDIO_SERVICE);
-            audio.registerAudioDeviceCallback(ROUTE, new android.os.Handler(android.os.Looper.getMainLooper()));
-        }
+        if (!acquire(getContext(), this)) return;
+        shownLevel = 0; // fades in once there's sound
         lastFrame = 0;
         postInvalidateOnAnimation();
     }
 
     void stop() {
-        if (running.remove(this) && running.isEmpty()) {
+        release(this);
+        reset();
+    }
+
+    /** Starts using the shared capture (false if `user` already was). */
+    static boolean acquire(Context ctx, Object user) {
+        if (!running.add(user)) return false;
+        if (visualizer == null) open();
+        if (audio == null) {
+            audio = (android.media.AudioManager) ctx.getApplicationContext().getSystemService(Context.AUDIO_SERVICE);
+            audio.registerAudioDeviceCallback(ROUTE, new android.os.Handler(android.os.Looper.getMainLooper()));
+        }
+        return true;
+    }
+
+    /** Stops using it; the last user releases it. */
+    static void release(Object user) {
+        if (running.remove(user) && running.isEmpty()) {
             close();
             if (audio != null) {
                 audio.unregisterAudioDeviceCallback(ROUTE);
                 audio = null;
             }
         }
-        reset();
+    }
+
+    static boolean using(Object user) {
+        return running.contains(user);
+    }
+
+    /**
+     * The sound's level now, in dB below full scale: {RMS, peak} (Android's own measurement of
+     * the output, independent of the analyzer's scaling). -96 when it can't be measured.
+     */
+    static void levels(float[] out) {
+        out[0] = out[1] = -96f;
+        if (visualizer == null) return;
+        try {
+            Visualizer.MeasurementPeakRms m = new Visualizer.MeasurementPeakRms();
+            if (visualizer.getMeasurementPeakRms(m) == Visualizer.SUCCESS) {
+                out[0] = m.mRms / 100f;
+                out[1] = m.mPeak / 100f;
+            }
+        } catch (RuntimeException ignored) {
+            // Not available: stays at the floor.
+        }
     }
 
     private static void open() {
@@ -206,6 +257,11 @@ final class SpectrumView extends View {
             v.setEnabled(false);
             v.setCaptureSize(Math.min(1024, Visualizer.getCaptureSizeRange()[1]));
             v.setDataCaptureListener(CAPTURE, Visualizer.getMaxCaptureRate(), false, true);
+            try {
+                v.setMeasurementMode(Visualizer.MEASUREMENT_MODE_PEAK_RMS); // for the VU meters
+            } catch (RuntimeException ignored) {
+                // The meters just stay down.
+            }
             v.setEnabled(true);
             visualizer = v;
         } catch (RuntimeException e) {
@@ -236,7 +292,7 @@ final class SpectrumView extends View {
      * Nothing heard for a few seconds: the sound goes where Android can't measure it (Android
      * Auto, for one), so the bars are hidden instead of standing still.
      */
-    private static boolean deaf() {
+    static boolean deaf() {
         long now = SystemClock.uptimeMillis();
         return now - Math.max(heardAt, startedAt) > SILENT_HIDE_MS;
     }
@@ -270,6 +326,49 @@ final class SpectrumView extends View {
         }
     }
 
+    /**
+     * The latest capture for the page, which draws the analyzers and meters itself:
+     * "heard|lowHz|rmsDb|peakDb|coverBars|miniBars", the bars as dB (FLOOR_DB..0, comma-separated,
+     * spaced on a log scale from lowHz to 20 kHz).
+     */
+    static String frame(int coverBars, int miniBars) {
+        StringBuilder b = new StringBuilder(512);
+        float[] lv = new float[2];
+        levels(lv);
+        b.append(deaf() ? 0 : 1).append('|').append(Math.round(lowHz * 10) / 10f).append('|')
+                .append(Math.round(lv[0] * 10) / 10f).append('|').append(Math.round(lv[1] * 10) / 10f).append('|');
+        byte[] f = fft;
+        int rate = fftRateMilliHz;
+        appendBars(b, f, rate, coverBars);
+        b.append('|');
+        appendBars(b, f, rate, miniBars);
+        return b.toString();
+    }
+
+    private static void appendBars(StringBuilder out, byte[] f, int rate, int bars) {
+        if (f == null || bars <= 0 || rate <= 0) return;
+        int bins = f.length / 2;
+        float binHz = rate / 1000f / f.length;
+        double low = binHz, ratio = HIGH_HZ / low;
+        for (int b = 0; b < bars; b++) {
+            double lo = low * Math.pow(ratio, (double) b / bars);
+            double hi = low * Math.pow(ratio, (double) (b + 1) / bars);
+            int k0 = Math.max(1, (int) Math.ceil(lo / binHz)), k1 = Math.min(bins - 1, (int) Math.floor(hi / binHz));
+            double power = 0;
+            if (k1 >= k0) {
+                for (int k = k0; k <= k1; k++) power += power(f, k);
+            } else {
+                double c = Math.max(1, Math.min(bins - 1, Math.sqrt(lo * hi) / binHz));
+                int k = (int) Math.floor(c);
+                double t = c - k;
+                power = k + 1 < bins ? (1 - t) * power(f, k) + t * power(f, k + 1) : power(f, k);
+            }
+            float db = (float) (10 * Math.log10(power / (128.0 * 128.0) + 1e-9));
+            if (b > 0) out.append(',');
+            out.append(Math.round(Math.max(FLOOR_DB, Math.min(0, db)) * 10) / 10f);
+        }
+    }
+
     private static double power(byte[] f, int k) {
         float re = f[2 * k], im = f[2 * k + 1];
         return re * re + im * im;
@@ -282,12 +381,21 @@ final class SpectrumView extends View {
         float dt = lastFrame == 0 ? 0 : Math.min(0.1f, (now - lastFrame) / 1000f);
         lastFrame = now;
 
-        if (deaf()) {
+        // Fade in with sound, out with silence (the bars keep falling while they fade).
+        boolean hearing = !deaf();
+        if (hearing) shownLevel = Math.min(1f, shownLevel + dt / FADE_IN_S);
+        else shownLevel = Math.max(0f, shownLevel - dt / FADE_OUT_S);
+        if (shownLevel <= 0f && !hearing) {
             // Nothing to draw: look again 4 times a second instead of every frame.
             if (running.contains(this)) postInvalidateDelayed(250);
             return;
         }
+        float f = shownLevel * shownLevel * (3 - 2 * shownLevel); // eased
+        barPaint.setAlpha(Math.round(barAlpha * 255 * f));
+        peakPaint.setAlpha(Math.round(peakAlpha * 255 * f));
+        labelPaint.setAlpha(Math.round(0xB3 * f));
         float w = getWidth(), h = getHeight();
+
         float barsH = h - labelHeight(), slot = w / bars, gap = Math.max(1, slot * 0.2f), cap = 2 * density;
         for (int b = 0; b < bars; b++) {
             shown[b] = target[b] >= shown[b] ? target[b] : Math.max(target[b], shown[b] - FALL_DB_PER_S * dt);
