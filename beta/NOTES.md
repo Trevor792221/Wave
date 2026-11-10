@@ -66,6 +66,7 @@
 | `64-wave-mobile-beta-1.0.9-resume.apk` | Nov 10 | 1.0.9: back where you left off (last page, song position, full-screen player) |
 | `65-wave-mobile-beta-1.0.9-song-position.apk` | Nov 10 | 1.0.9: keeps only the song and its position (opens on Tidal's home page) |
 | `66-wave-mobile-beta-1.0.9-crash-reports.apk` | Nov 10 | 1.0.9: Send crash reports automatically switch (Wave tab); relay address not set yet |
+| `67-wave-mobile-beta-1.0.9-crash-relay.apk` | Nov 10 | 1.0.9: crash reports go to the relay (wave-crash.trevorgray022.workers.dev) when the switch is on |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
