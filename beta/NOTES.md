@@ -103,6 +103,7 @@
 | `101-wave-mobile-beta-1.1.0-updates-tab.apk` | Nov 10 | Updates tab (updates, developer options, license); Text size moved to the Visuals tab |
 | `102-wave-mobile-beta-1.1.1-tabs-fit.apk` | Nov 10 | Settings tabs fit at big Text sizes: closer together, then the row scrolls sideways with the picked tab in view |
 | `103-wave-mobile-beta-1.1.2-bluetooth-note.apk` | Nov 10 | Meters say BT on Bluetooth (the speaker sets the volume there, so they show the level sent) |
+| `104-wave-mobile-beta-1.1.2-deck-vu-pk.apk` | Nov 10 | Deck meters: VU (average) and PK (peak) bars instead of L and R; BT note kept |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
