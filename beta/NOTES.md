@@ -91,6 +91,7 @@
 | `89-wave-mobile-beta-1.0.9-clip-light.apk` | Nov 10 | 1.0.9: meters follow phone volume; CLIP lights only when the phone's output goes over full scale; PEAK scale to +3, red from 0; VU reference −18/−14 |
 | `90-wave-mobile-beta-1.0.9-red-means-clipping.apk` | Nov 10 | 1.0.9 as released, with only the PEAK scale changed: it runs to +3 dBFS and goes red only above 0, when the phone's output clips |
 | `91-wave-mobile-beta-1.0.9-deck-meters.apk` | Nov 10 | 1.0.9 + test 90: Meter style Deck (glowing L/R peak bars with OVER, beside the song title) and Meters in the player bar |
+| `92-wave-mobile-beta-1.0.9-deck-on-cover.apk` | Nov 10 | Deck meters across the top of the album art (like the other styles); no dark background in the player bar |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
