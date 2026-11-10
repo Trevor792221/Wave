@@ -105,6 +105,7 @@
 | `103-wave-mobile-beta-1.1.2-bluetooth-note.apk` | Nov 10 | Meters say BT on Bluetooth (the speaker sets the volume there, so they show the level sent) |
 | `104-wave-mobile-beta-1.1.2-deck-vu-pk.apk` | Nov 10 | Deck meters: VU (average) and PK (peak) bars instead of L and R; BT note kept |
 | `105-wave-mobile-beta-1.1.2-back-button.apk` | Nov 10 | Back closes the full-screen player; on the first page Wave goes to the background and keeps playing instead of closing |
+| `106-wave-mobile-beta-1.1.2-every-frame.apk` | Nov 10 | Analyzers read Android's newest capture every screen frame (not ~20 updates a second) |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
