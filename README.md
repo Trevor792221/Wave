@@ -4,6 +4,7 @@ Every test build and probe app made while building Wave, kept here and published
 [Beta](https://github.com/Trevor792221/Wave/releases/tag/beta) and
 [Probes](https://github.com/Trevor792221/Wave/releases/tag/probes) pages.
 
+- [CHANGELOG.md](CHANGELOG.md): every test build and probe, newest first, with what changed in it.
 - [`beta/`](beta): test builds of Wave for TV (`wave-…`) and Wave Mobile (`wave-mobile-…`), numbered in the order
   they were made. See [beta/NOTES.md](beta/NOTES.md) for what each one tested.
 - [`probes/`](probes): Wave Probe versions. See [probes/NOTES.md](probes/NOTES.md). The probe's source is on `main` in

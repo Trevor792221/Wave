@@ -35,7 +35,7 @@ jobs:
             ls "$dir"/*.apk | sed "s|^|$tag: |" >> "$GITHUB_STEP_SUMMARY"
           }
           page beta "Wave Beta (test builds)" \
-            "Test builds of Wave for TV (\`wave-beta-<version>.apk\`) and Wave Mobile (\`wave-mobile-beta-<version>.apk\`) built from \`main\`: called Wave Beta, they install alongside the official apps, with their own sign-in, and don't update themselves. Below them, every earlier test build, numbered in order." \
+            "Test builds of Wave for TV (\`wave-beta-<version>.apk\`) and Wave Mobile (\`wave-mobile-beta-<version>.apk\`) built from \`main\`: called Wave Beta, they install alongside the official apps, with their own sign-in. The numbered test builds below update themselves (Updates tab, Check now); these builds from \`main\` are signed with the release key, so they don't. Below them, every earlier test build, numbered in order." \
             beta
           page probes "Wave Probe" \
             "Wave Probe (\`wave-probe-<version>.apk\`): Tidal's web player with a log of the kinds of request it makes and, on request, how Tidal's page and player are built (structure only: no titles, names or account details). Source: probes/wave-probe on main. Below, every probe version, numbered in order." \
