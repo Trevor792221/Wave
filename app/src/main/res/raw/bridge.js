@@ -35,8 +35,8 @@
       try { v = parseInt(localStorage.getItem('wave.' + k), 10); } catch (e) {}
       return isFinite(v) ? Math.max(lo, Math.min(hi, v)) : def;
     };
-    var outMs = function () { return fadeSetting('fadeOut', 800, 50, 3000); };
-    var inMs = function () { return fadeSetting('fadeIn', 800, 50, 3000); };
+    var outMs = function () { return fadeSetting('fadeOut', 800, 50, 6000); };
+    var inMs = function () { return fadeSetting('fadeIn', 800, 50, 6000); };
     var fadeSteps = function () { return fadeSetting('fadeSteps', 200, 10, 400); };
     // On or off: the "Soft pause" switch above Tidal's Crossfade setting (on by default).
     var softOn = function () { try { return localStorage.getItem('wave.softPause') !== '0'; } catch (e) { return true; } };
@@ -1620,8 +1620,8 @@
     sd.setAttribute('data-wave-dev', '1');
     // Soft pause's fades (General tab → Soft pause): their lengths and how many volume steps.
     var fade = function (k, def) { var v = parseInt(lsGet('wave.' + k), 10); return isFinite(v) ? v : def; };
-    var fOut = devSlider('Fade out', ' ms', 50, 3000, 50, fade('fadeOut', 800), function (v) { lsSet('wave.fadeOut', String(v)); });
-    var fIn = devSlider('Fade in', ' ms', 50, 3000, 50, fade('fadeIn', 800), function (v) { lsSet('wave.fadeIn', String(v)); });
+    var fOut = devSlider('Fade out', ' ms', 50, 6000, 50, fade('fadeOut', 800), function (v) { lsSet('wave.fadeOut', String(v)); });
+    var fIn = devSlider('Fade in', ' ms', 50, 6000, 50, fade('fadeIn', 800), function (v) { lsSet('wave.fadeIn', String(v)); });
     var fSteps = devSlider('Fade steps', '', 10, 400, 10, fade('fadeSteps', 200), function (v) { lsSet('wave.fadeSteps', String(v)); });
     var fHead = row('Soft pause fades', 'How long pausing fades out and playing fades in, and in how many volume steps (more: smoother).');
     var fReset = el('button', 'wv-btn', 'Reset');
