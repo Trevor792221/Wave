@@ -113,6 +113,7 @@
 | `111-wave-mobile-beta-1.1.4-beta-updates.apk` | Nov 10 | Wave Beta updates itself from the numbered test builds here (Check now; automatic check off by default). First numbered build: install this one by hand |
 | `112-wave-mobile-beta-1.1.5-6s-fades.apk` | Nov 11 | Developer options: soft pause fades up to 6 s (was 3 s) |
 | `113-wave-mobile-beta-1.1.6-permissions.apk` | Nov 11 | First open explains and asks for the permissions; Tidal's About tab lists every permission and what for |
+| `114-wave-mobile-beta-1.1.6-features.apk` | Nov 11 | Tidal's About tab lists what Wave adds (features), above the permissions |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
