@@ -121,6 +121,7 @@
 | `119-wave-mobile-beta-1.1.8-verify-update-2.apk` | Nov 11 | Same as 118, to try the check: from 118, Check now installs this one |
 | `120-wave-beta-2.1.0-ring-fixes.apk` | Nov 11 | TV: ring reaches items inside menus and rows (profile menu; a song's menu, add and heart), ring centred, sliders move with left/right, no volume in the full-screen player, smaller quality line, no artist card left open |
 | `121-wave-beta-2.1.0-tv-defaults.apk` | Nov 11 | TV: Uploads tab hidden and My Collection pinned to the sidebar the first time (Tidal's own settings, changeable after); ring fixes from 120 |
+| `122-wave-beta-2.1.0-tv-defaults-probed.apk` | Nov 11 | TV: Uploads hidden and Collection pinned with Tidal's exact commands (seen with Wave Probe 8: SET_HIDE_UPLOAD_TAB, SET_PIN_COLLECTION_TO_SIDEBAR) |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
