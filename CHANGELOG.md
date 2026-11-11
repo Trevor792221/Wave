@@ -5,6 +5,7 @@ Every test build and probe on this branch, newest first, with what changed in it
 ## Nov 11
 
 - **Probe 10** · Wave Probe 8 · [`10-wave-probe-8.apk`](probes/10-wave-probe-8.apk): Records Tidal's sign-in state (auth, session, user: their shape only, no names, ids or tokens), for opening the login page when signed out
+- **Test 120** · Wave for TV Beta 2.1.0 · [`120-wave-beta-2.1.0-ring-fixes.apk`](beta/120-wave-beta-2.1.0-ring-fixes.apk): TV: ring reaches items inside menus and rows (profile menu; a song's menu, add and heart), ring centred, sliders move with left/right, no volume in the full-screen player, smaller quality line, no artist card left open
 - **Test 119** · Wave Mobile Beta 1.1.8 · [`119-wave-mobile-beta-1.1.8-verify-update-2.apk`](beta/119-wave-mobile-beta-1.1.8-verify-update-2.apk): Same as 118, to try the check: from 118, Check now installs this one
 - **Test 118** · Wave Mobile Beta 1.1.8 · [`118-wave-mobile-beta-1.1.8-verify-update.apk`](beta/118-wave-mobile-beta-1.1.8-verify-update.apk): Updates are checked by Wave before installing (its app id, signed with its key); failed check: toast, one automatic retry
 - **Test 117** · Wave Mobile Beta 1.1.7 · [`117-wave-mobile-beta-1.1.7-login-first.apk`](beta/117-wave-mobile-beta-1.1.7-login-first.apk): Signed out: opens Tidal's login page (its own Log in button, once per start); player bar tap, artist commas

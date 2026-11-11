@@ -119,6 +119,7 @@
 | `117-wave-mobile-beta-1.1.7-login-first.apk` | Nov 11 | Signed out: opens Tidal's login page (its own Log in button, once per start); player bar tap, artist commas |
 | `118-wave-mobile-beta-1.1.8-verify-update.apk` | Nov 11 | Updates are checked by Wave before installing (its app id, signed with its key); failed check: toast, one automatic retry |
 | `119-wave-mobile-beta-1.1.8-verify-update-2.apk` | Nov 11 | Same as 118, to try the check: from 118, Check now installs this one |
+| `120-wave-beta-2.1.0-ring-fixes.apk` | Nov 11 | TV: ring reaches items inside menus and rows (profile menu; a song's menu, add and heart), ring centred, sliders move with left/right, no volume in the full-screen player, smaller quality line, no artist card left open |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
