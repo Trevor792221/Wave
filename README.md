@@ -12,6 +12,26 @@ The buttons always download the newest version. Older versions are on the [relea
 
 Wave opens Tidal's web player full screen and makes it work with a TV remote. Playback, sign-in and Widevine DRM are all handled by Tidal's own site; Wave only grants the DRM permission to tidal.com pages.
 
+## Features
+
+What Wave adds to Tidal's web player (also listed in the app: Settings → About). Marked ones are only in Wave Mobile (phone) or Wave for TV (TV).
+
+- **Fair shuffle**: with shuffle on, no song repeats until every song in the list has played. Hold the shuffle button to switch it; the Wave tab shows how many have played this round, with a reset.
+- **Soft pause**: pausing fades the music out and playing fades it back in, with no click.
+- **Back where you left off**: Wave opens on the song you were playing, at the same spot.
+- **Sleep timer**: pauses the music after 30 minutes to 4 hours, also with Wave in the background.
+- **Audio quality for Wi-Fi and mobile data** (phone): a quality for each, switched by itself when the phone changes networks.
+- **Satellite data** (phone): plays over T-Mobile's T-Satellite and other satellite data, with Tidal's adaptive streaming on.
+- **Quality line**: what's really streaming, under the album art (e.g. FLAC · 16-bit / 44.1 kHz · 1066 kbps), in the quality's colour.
+- **Lighter page**: Tidal's tracking and cookie banner are blocked.
+- **Spectrum analyzers**: over the album art and in the player bar, fading in and out with the sound.
+- **Level meters**: VU and peak meters on the album art, in Analog, Digital or Deck style. Red means the sound really clipped; BT shows on Bluetooth.
+- **Text size** (phone): Tidal's whole page bigger or smaller together, and song rows that fit narrow screens.
+- **Swipes on the album art** (phone): swipe left or right for the next or previous song, down to close the player; tap a song to play it.
+- **S Pen** (phone): press the pen's button once to play or pause, twice for the next song.
+- **Remote control** (TV): a highlight ring that jumps between buttons with the arrow keys, or a pointer, switched with Menu.
+- **Page widths** (TV): hold Menu to change how wide Tidal's page is drawn.
+
 ## Remote controls
 
 Wave has two ways to get around, switched with **Menu**:
@@ -142,6 +162,23 @@ Music keeps playing when you leave the app or the screen turns off. Wave runs a 
 ## Lighter page
 
 Datadog usage tracking and the cookie-consent banner are answered empty without leaving the TV. Tidal's own event reporting (which feeds your history and recommendations) and its anti-bot check are left alone.
+
+## Permissions
+
+On its first open Wave says what the permissions Android asks about are for (Wave Mobile: microphone and notifications; Wave for TV: microphone), then asks. Settings → About (Tidal's About tab) lists them all with whether they're allowed, and a button to Android's settings for Wave.
+
+| Permission | What for |
+|---|---|
+| Microphone (asked) | The spectrum analyzer and the level meters: Android's measurement of the sound the phone plays (its Visualizer) needs it. Wave never records or listens through the microphone. |
+| Notifications (asked, Android 13+) | The music controls (play, pause, skip) in the notification and on the lock screen. |
+| Install apps (asked the first time an update is installed) | Installing Wave's own updates from its GitHub page. Android asks before each install. |
+| Internet | Tidal's web player, update checks and, if switched on, crash reports. |
+| Play in the background (foreground service, media playback) | Keeps the music playing with Wave in the background, with its notification. |
+| Keep awake | So the music doesn't stop when the screen turns off. |
+| Change audio settings | Also needed by Android's Visualizer for the analyzer and meters. |
+| See the network connection | Wi-Fi, mobile data or satellite, for the audio quality chosen for each. |
+
+Wave for TV uses the same list without notifications and the network connection.
 
 ## If something goes wrong
 

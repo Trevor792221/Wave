@@ -100,6 +100,7 @@ public final class MainActivity extends Activity {
             if (!BuildConfig.TV && r - l != or - ol && prefs.getInt("pageScale", 100) != 100) applyViewport();
         });
         handler.post(this::autoCheckForUpdates); // once everything is set up
+        handler.post(this::explainPermissions); // the very first open (Wave Mobile)
         if (!BuildConfig.TV) keepClearOfSystemBars();
 
         WebSettings s = web.getSettings();
@@ -938,6 +939,32 @@ public final class MainActivity extends Activity {
             return at == 0 ? 0 : Math.max(0, at - android.os.SystemClock.uptimeMillis());
         }
 
+        /** For the About tab: which permissions Android asks about are allowed (JSON). */
+        @JavascriptInterface
+        public String permissions() {
+            try {
+                boolean granted = android.content.pm.PackageManager.PERMISSION_GRANTED == checkSelfPermission(android.Manifest.permission.RECORD_AUDIO);
+                org.json.JSONObject o = new org.json.JSONObject().put("mic", Build.VERSION.SDK_INT < 23 || granted);
+                if (Build.VERSION.SDK_INT >= 33 && !BuildConfig.TV) o.put("notifications", checkSelfPermission("android.permission.POST_NOTIFICATIONS") == android.content.pm.PackageManager.PERMISSION_GRANTED);
+                if (Build.VERSION.SDK_INT >= 26) o.put("install", getPackageManager().canRequestPackageInstalls());
+                return o.toString();
+            } catch (org.json.JSONException e) {
+                return "{}";
+            }
+        }
+
+        /** Android's settings page for Wave (permissions, notifications, install apps). */
+        @JavascriptInterface
+        public void openAppSettings() {
+            handler.post(() -> {
+                try {
+                    startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
+                } catch (RuntimeException ignored) {
+                    // No settings app: nothing to open.
+                }
+            });
+        }
+
         @JavascriptInterface
         public void setCrashAuto(boolean on) {
             prefs.edit().putBoolean("crashAuto", on).apply();
@@ -1009,6 +1036,39 @@ public final class MainActivity extends Activity {
     private void setRingColor(int rgb) {
         web.evaluateJavascript(String.format(java.util.Locale.US,
                 "window.__wave&&__wave.setRingColor&&__wave.setRingColor('#%06X')", rgb & 0xFFFFFF), null);
+    }
+
+    /**
+     * Wave Mobile's very first open: what the permissions Android asks about are for, then the
+     * requests themselves. Once; after that, music starting asks again only for what's missing
+     * (askPhonePermissions). The About tab lists every permission (bridge.js).
+     */
+    private void explainPermissions() {
+        if (Build.VERSION.SDK_INT < 23 || isFinishing() || prefs.getBoolean("permissionsExplained", false)) return;
+        prefs.edit().putBoolean("permissionsExplained", true).apply();
+        boolean notifAsk = !BuildConfig.TV && Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED;
+        boolean micAsk = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED;
+        if (!notifAsk && !micAsk) return; // already allowed (an update from an older Wave)
+        String msg = (notifAsk
+                ? "\u2022 Notifications: the music controls (play, pause, skip) in the notification and on the lock screen.\n\n" : "")
+                + (micAsk ? "\u2022 Microphone: the spectrum analyzer and the level meters. Android's sound measurement asks for this "
+                + "permission, but Wave only measures the music the " + (BuildConfig.TV ? "TV" : "phone") + " itself plays. It never records or listens through the microphone.\n\n" : "")
+                + "Later, the first time you install an update from inside Wave, Android asks once more: to let Wave install apps (its own updates only).\n\n"
+                + "Settings \u2192 About lists every permission Wave uses and what for.";
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(notifAsk && micAsk ? "Wave asks for two permissions" : "Wave asks for a permission")
+                .setMessage(msg)
+                .setPositiveButton("Continue", (d, w) -> {
+                    askedMicPermission = false;
+                    if (BuildConfig.TV) {
+                        askedMicPermission = true;
+                        requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, 1);
+                    } else {
+                        askPhonePermissions();
+                    }
+                })
+                .setNegativeButton("Not now", null)
+                .show();
     }
 
     /**

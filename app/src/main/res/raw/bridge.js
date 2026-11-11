@@ -1797,9 +1797,96 @@
       tabs.scrollLeft += picked.getBoundingClientRect().right - tabs.getBoundingClientRect().right + 4;
     }
   }
+  // ---------- Tidal's About tab: the permissions Wave uses and what for ----------
+  // Tidal's About page (seen with Wave Probe 3): its first card (logo, version, release notes),
+  // then its license title and frame. Wave's Permissions section goes right after that first card.
+  var PERMS = [
+    ['mic', 'Microphone (asked)', 'For the spectrum analyzer and the level meters: Android\'s measurement of the music playing needs it. Wave never records or listens through the microphone.'],
+    ['notifications', 'Notifications (asked, Android 13 and later)', 'The music controls (play, pause, skip) in the notification and on the lock screen.'],
+    ['install', 'Install apps (asked the first time you install an update)', 'Installing Wave\'s own updates from its GitHub page. Android asks before each install.'],
+    [null, 'Internet', 'Tidal\'s web player, update checks and, if switched on, crash reports.'],
+    [null, 'Play in the background (foreground service, media playback)', 'Keeps the music playing with Wave in the background, with its notification showing.'],
+    [null, 'Keep awake', 'So the music doesn\'t stop when the screen turns off.'],
+    [null, 'Change audio settings', 'Also needed by Android\'s sound measurement for the analyzer and meters.'],
+    ['phone', 'See the network connection', 'Wi-Fi, mobile data or satellite, for the audio quality chosen for each.']
+  ];
+  // What Wave adds to Tidal (the same list is in the README), before the permissions.
+  var FEATURES = [
+    ['Fair shuffle', 'With shuffle on, no song repeats until every song in the list has played. Hold the shuffle button to switch it; the Wave tab shows how many have played this round, with a reset.'],
+    ['Soft pause', 'Pausing fades the music out and playing fades it back in, with no click.'],
+    ['Back where you left off', 'Wave opens on the song you were playing, at the same spot.'],
+    ['Sleep timer', 'Pauses the music after 30 minutes to 4 hours, also with Wave in the background.'],
+    ['Audio quality for Wi-Fi and mobile data (phone)', 'A quality for each, switched by itself when the phone changes networks.'],
+    ['Satellite data (phone)', 'Plays over T-Mobile\'s T-Satellite and other satellite data, with Tidal\'s adaptive streaming on.'],
+    ['Quality line', 'What\'s really streaming, under the album art (e.g. FLAC · 16-bit / 44.1 kHz · 1066 kbps), in the quality\'s colour.'],
+    ['Lighter page', 'Tidal\'s tracking and cookie banner are blocked.'],
+    ['Spectrum analyzers', 'Over the album art and in the player bar, fading in and out with the sound.'],
+    ['Level meters', 'VU and peak meters on the album art, in Analog, Digital or Deck style. Red means the sound really clipped; BT shows on Bluetooth.'],
+    ['Text size (phone)', 'Tidal\'s whole page bigger or smaller together, and song rows that fit narrow screens.'],
+    ['Swipes on the album art (phone)', 'Swipe left or right for the next or previous song, down to close the player; tap a song to play it.'],
+    ['S Pen (phone)', 'Press the pen\'s button once to play or pause, twice for the next song.'],
+    ['Remote control (TV)', 'A highlight ring that jumps between buttons with the arrow keys, or a pointer, switched with Menu.'],
+    ['Page widths (TV)', 'Hold Menu to change how wide Tidal\'s page is drawn.']
+  ];
+  var featBox = null;
+  function featuresTick(page, first) {
+    if (featBox && featBox.isConnected && featBox.previousElementSibling === first) return;
+    if (featBox && featBox.parentNode) featBox.parentNode.removeChild(featBox);
+    settingsCss();
+    featBox = section('What Wave adds');
+    featBox.setAttribute('data-wave-features', '1');
+    featBox.appendChild(card(FEATURES.map(function (f) { return row(f[0], f[1]); })));
+    page.insertBefore(featBox, first.nextSibling);
+  }
+  var permBox = null;
+  function permissionsTick() {
+    var page = document.querySelector('[data-test="settings-page-about"]'), first = page && page.firstElementChild;
+    if (!first) { permBox = featBox = null; return; }
+    featuresTick(page, first);
+    first = featBox; // the permissions come after the features
+    var st = {};
+    try { st = JSON.parse(WaveApp.permissions()) || {}; } catch (e) {}
+    if (!permBox || !permBox.isConnected || permBox.previousElementSibling !== first) {
+      if (permBox && permBox.parentNode) permBox.parentNode.removeChild(permBox);
+      settingsCss();
+      permBox = section('Permissions');
+      permBox.setAttribute('data-wave-permissions', '1');
+      var rows = [];
+      PERMS.forEach(function (pm) {
+        var r = row(pm[1], pm[2]);
+        if (pm[0] === 'phone') { if (!W.phone) return; } // Wave Mobile only
+        else if (pm[0]) {
+          var tag = el('span', 'wv-perm');
+          tag.style.cssText = 'flex:none;font-size:.857em;font-weight:600';
+          r.appendChild(tag);
+          r.permKey = pm[0];
+          r.tag = tag;
+        }
+        rows.push(r);
+      });
+      var open = row('Change these', 'Android\'s settings for Wave: allow or take back the microphone, notifications and installing updates.');
+      var ob = el('button', 'wv-btn', 'Settings');
+      ob.type = 'button';
+      ob.onclick = function () { try { WaveApp.openAppSettings(); } catch (e) {} };
+      open.appendChild(ob);
+      permBox.appendChild(card(rows));
+      permBox.appendChild(card([open]));
+      permBox.rows = rows;
+      page.insertBefore(permBox, first.nextSibling);
+    }
+    permBox.rows.forEach(function (r) {
+      if (!r.permKey) return;
+      var v = st[r.permKey];
+      r.style.display = v === undefined ? 'none' : ''; // not asked on this Android version
+      var later = !v && r.permKey === 'install'; // Android asks when an update is installed
+      var text = v ? 'Allowed' : later ? 'Asked later' : 'Not allowed', color = v || later ? 'rgba(255,255,255,.7)' : '#E5484D';
+      if (r.tag.textContent !== text) { r.tag.textContent = text; r.tag.style.color = color; }
+    });
+  }
   function settingsTick() {
     try { qualityTick(); } catch (e) {}
     try { softPauseTick(); } catch (e) {}
+    try { permissionsTick(); } catch (e) {}
     var tabs = tabRow();
     if (!tabs) { if (wavePanel) hideWave(); return; }
     WAVE_TABS.forEach(function (t) {
