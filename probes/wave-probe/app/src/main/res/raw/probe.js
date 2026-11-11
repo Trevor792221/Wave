@@ -80,6 +80,18 @@
   }, true);
 
   // Layout of a value: names and types; values only for on/off, numbers and short CODES.
+  function secret(v, depth) {
+    if (v === null || v === undefined) return String(v);
+    var t = typeof v;
+    if (t === 'boolean') return String(v);
+    if (t === 'number') return v === 0 ? '0' : 'num';
+    if (t === 'string') return /^[A-Z_]{1,24}$/.test(v) ? '"' + v + '"' : 'str(' + v.length + ')';
+    if (t === 'function') return 'fn';
+    if (depth >= 4) return Array.isArray(v) ? '[' + v.length + ']' : '{...}';
+    if (Array.isArray(v)) return '[' + v.length + (v.length ? ': ' + secret(v[0], depth + 1) : '') + ']';
+    var ks = Object.keys(v);
+    return '{' + ks.slice(0, 50).map(function (k) { return k + ': ' + secret(v[k], depth + 1); }).join(', ') + (ks.length > 50 ? ', ...' : '') + '}';
+  }
   function shape(v, depth) {
     if (v === null || v === undefined) return String(v);
     var t = typeof v;
@@ -199,6 +211,11 @@
         out.push('state keys: ' + Object.keys(s).join(', '));
         ['view', 'playQueue', 'player', 'playbackControls', 'settings', 'ui', 'favorites'].forEach(function (k) {
           if (s[k]) out.push('state.' + k + ': ' + shape(s[k], 0));
+        });
+        // Signed in or out (Probe 8): the sign-in parts, with no names, ids or tokens (text as its
+        // length, numbers as "num"; on/off and ALL-CAPS values shown).
+        ['auth', 'session', 'user'].forEach(function (k) {
+          out.push('state.' + k + ': ' + (s[k] === undefined ? 'missing' : secret(s[k], 0)));
         });
       } catch (e) { out.push('state error: ' + e.message); }
       out.push('recent actions: ' + (P.actions.slice(-80).join(' | ') || 'none'));

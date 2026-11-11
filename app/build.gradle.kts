@@ -36,8 +36,8 @@ android {
         create("mobile") {
             dimension = "device"
             applicationId = "com.wave.mobile"
-            versionCode = 117
-            versionName = "1.1.7"
+            versionCode = 118
+            versionName = "1.1.8"
             buildConfigField("boolean", "TV", "false")
         }
     }

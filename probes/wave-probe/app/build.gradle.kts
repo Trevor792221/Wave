@@ -13,8 +13,8 @@ android {
         applicationId = "com.wave.probe"
         minSdk = 23
         targetSdk = 35
-        versionCode = 9
-        versionName = "7"
+        versionCode = 10
+        versionName = "8"
     }
     signingConfigs {
         if (releaseKeystore != null) {

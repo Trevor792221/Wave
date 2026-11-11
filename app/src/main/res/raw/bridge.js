@@ -213,6 +213,13 @@
     WaveApp.state(!!(e && !e.paused && !e.ended), n.title, n.artist, n.art, n.dur, n.pos, n.quality || '', !!n.fav, n.tier || '');
   }
   function txt(el) { return el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''; }
+  // The artists, one link each in Tidal's player bar (seen with Wave Probe 3), as "A, B".
+  function artists(el) {
+    if (!el) return '';
+    var links = el.querySelectorAll('[data-test="grid-item-detail-text-title-artist"]'), names = [];
+    for (var i = 0; i < links.length; i++) { var n = txt(links[i]); if (n && names.indexOf(n) < 0) names.push(n); }
+    return names.length ? names.join(', ') : txt(el);
+  }
   // What's playing, for Android's media controls and notification. Android's WebView has no
   // Media Session API, so it comes from Tidal itself: the song from its player bar, the length and
   // position from its player state (else the audio). Times in milliseconds.
@@ -222,7 +229,7 @@
     var footer = document.querySelector('[data-test="footer-player"]') || compactBar();
     if (footer) {
       if (!title) title = txt(footer.querySelector('[data-test="footer-track-title"]'));
-      if (!artist) artist = txt(footer.querySelector('[data-test="footer-artist-name"]'));
+      if (!artist) artist = artists(footer.querySelector('[data-test="footer-artist-name"]'));
       if (!title || !artist) { // no markers: the first two lines of text in the bar
         var texts = [], w = document.createTreeWalker(footer, NodeFilter.SHOW_TEXT), t;
         while ((t = w.nextNode()) && texts.length < 2) {
@@ -662,6 +669,20 @@
     var b = document.querySelector('[data-test="player-details-toggle-now-playing"]');
     if (b) b.click();
   }
+  // Phones: tapping anywhere in the player bar outside its buttons (the cover, the song's title
+  // and artist, the space beside them) opens the full-screen player, instead of the song's or the
+  // artist's page.
+  addEventListener('click', function (e) {
+    if (!W.phone) return;
+    var t = e.target && e.target.closest ? e.target : null;
+    if (!t || !t.closest('[data-test="footer-player"]')) return;
+    var b = document.querySelector('[data-test="player-details-toggle-now-playing"]');
+    if (!b || b.contains(t)) return; // the cover: Tidal opens it itself
+    if (t.closest('button,[role="button"],[role="slider"],input,[data-test="play-controls"],[data-test="progress-bar"]')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    b.click();
+  }, true);
   var wasOpen = false;
   function checkPlayerOpened() {
     var open = playerOpen() || playerTabsShown();
@@ -2477,6 +2498,27 @@
     close.click();
     return true;
   };
+
+  // Signed out: straight to Tidal's login page, by Tidal's own "Log in / Create a free account"
+  // button (seen with Wave Probe 8: signed out, session.userId is null; the button starts the
+  // login at login.tidal.com). Once per app start, so going back from the login page stays on the
+  // home page.
+  (function () {
+    var tries = 0, KEY = 'wave.loginShown';
+    try { if (sessionStorage.getItem(KEY)) return; } catch (e) {}
+    var timer = setInterval(function () {
+      if (++tries > 40) { clearInterval(timer); return; } // 20 s: Tidal didn't settle; leave it
+      var sess = null;
+      try { fairAttach(); sess = fairStore && fairStore.getState().session; } catch (e) {}
+      if (!sess || !sess.isInitialized || sess.isLoading) return; // not known yet
+      if (sess.userId) { clearInterval(timer); return; } // signed in
+      var b = document.querySelector('[data-test="combined-login-signup-button"]');
+      if (!b) return;
+      clearInterval(timer);
+      try { sessionStorage.setItem(KEY, '1'); } catch (e) {}
+      b.click();
+    }, 500);
+  })();
 
   W.ready = true;
 })();
