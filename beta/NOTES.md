@@ -115,6 +115,7 @@
 | `113-wave-mobile-beta-1.1.6-permissions.apk` | Nov 11 | First open explains and asks for the permissions; Tidal's About tab lists every permission and what for |
 | `114-wave-mobile-beta-1.1.6-features.apk` | Nov 11 | Tidal's About tab lists what Wave adds (features), above the permissions |
 | `115-wave-mobile-beta-1.1.7-artist-commas.apk` | Nov 11 | Notification, lock screen and Android Auto show several artists as "A, B" |
+| `116-wave-mobile-beta-1.1.7-bar-opens-player.apk` | Nov 11 | Tapping the player bar (cover, title, artist, the space beside them) opens the full-screen player; artists with commas |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
