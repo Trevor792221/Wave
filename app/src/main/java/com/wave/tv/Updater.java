@@ -144,8 +144,17 @@ final class Updater {
         }
     }
 
-    /** Downloads the newest APK straight into Android's installer, which then asks to install it. */
+    /**
+     * Downloads the newest APK, checks it's really Wave (this app's id, signed with this app's
+     * key), then hands it to Android's installer, which checks the same again and asks to install
+     * it. A download that fails the check is thrown away and tried once more by itself; after a
+     * second failure it stops (Check now starts over).
+     */
     void install(Listener l) {
+        install(l, 1);
+    }
+
+    private void install(Listener l, int attempt) {
         if (busy || newestUrl == null) return;
         busy = true;
         String what = appName() + " " + (BuildConfig.BETA ? testName(Integer.parseInt(newest)) : newest);
@@ -153,28 +162,48 @@ final class Updater {
         watchResult(l);
         String url = newestUrl;
         new Thread(() -> {
+            java.io.File apk = new java.io.File(activity.getCacheDir(), "update.apk");
             PackageInstaller.Session session = null;
             try {
+                HttpURLConnection con = open(url);
+                try (InputStream in = con.getInputStream(); OutputStream out = new java.io.FileOutputStream(apk)) {
+                    byte[] buf = new byte[65536];
+                    for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+                } finally {
+                    con.disconnect();
+                }
+                if (!isWave(apk)) {
+                    apk.delete();
+                    main.post(() -> {
+                        busy = false;
+                        android.widget.Toast.makeText(activity, "Update verification failed", android.widget.Toast.LENGTH_LONG).show();
+                        if (attempt < 2) {
+                            install(l, attempt + 1); // once more, by itself
+                        } else {
+                            l.status("error", "Update verification failed twice, so it wasn't installed. Check now tries again.");
+                        }
+                    });
+                    return;
+                }
                 PackageInstaller pi = activity.getPackageManager().getPackageInstaller();
                 PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
                 params.setAppPackageName(activity.getPackageName());
                 int id = pi.createSession(params);
                 session = pi.openSession(id);
-                HttpURLConnection con = open(url);
-                try (InputStream in = con.getInputStream();
-                     OutputStream out = session.openWrite("wave.apk", 0, con.getContentLengthLong())) {
+                try (InputStream in = new java.io.FileInputStream(apk);
+                     OutputStream out = session.openWrite("wave.apk", 0, apk.length())) {
                     byte[] buf = new byte[65536];
                     for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
                     session.fsync(out);
-                } finally {
-                    con.disconnect();
                 }
+                apk.delete();
                 Intent done = new Intent(ACTION_DONE).setPackage(activity.getPackageName());
                 int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
                 session.commit(PendingIntent.getBroadcast(activity, 0, done, flags).getIntentSender());
                 session.close();
                 main.post(() -> l.status("installing", "Installing " + what + "…"));
             } catch (Exception e) {
+                apk.delete();
                 if (session != null) session.abandon();
                 main.post(() -> {
                     busy = false;
@@ -182,6 +211,33 @@ final class Updater {
                 });
             }
         }).start();
+    }
+
+    /** The downloaded APK is this app (same app id) and signed with the same key as this app. */
+    @SuppressWarnings("deprecation")
+    private boolean isWave(java.io.File apk) {
+        try {
+            android.content.pm.PackageManager pm = activity.getPackageManager();
+            int flag = Build.VERSION.SDK_INT >= 28 ? android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES
+                    : android.content.pm.PackageManager.GET_SIGNATURES;
+            android.content.pm.PackageInfo theirs = pm.getPackageArchiveInfo(apk.getPath(), flag);
+            android.content.pm.PackageInfo mine = pm.getPackageInfo(activity.getPackageName(), flag);
+            if (theirs == null || !activity.getPackageName().equals(theirs.packageName)) return false;
+            android.content.pm.Signature[] a = signers(theirs), b = signers(mine);
+            if (a == null || b == null || a.length == 0) return false;
+            return new java.util.HashSet<>(java.util.Arrays.asList(a)).equals(new java.util.HashSet<>(java.util.Arrays.asList(b)));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private static android.content.pm.Signature[] signers(android.content.pm.PackageInfo p) {
+        if (Build.VERSION.SDK_INT >= 28) {
+            if (p.signingInfo == null) return null;
+            return p.signingInfo.hasMultipleSigners() ? p.signingInfo.getApkContentsSigners() : p.signingInfo.getSigningCertificateHistory();
+        }
+        return p.signatures;
     }
 
     private BroadcastReceiver receiver;
