@@ -140,6 +140,7 @@
 | `138-wave-mobile-beta-1.2.1-safety-check-2.apk` | Nov 12 | Same as 136, to try the "Safety check passed" message: from 136, Check now installs this one |
 | `139-wave-mobile-beta-1.2.1-check-on-download.apk` | Nov 12 | Updates: Check now downloads the update and runs the safety check straight away ("Safety check passed"), then offers Install, which opens Android's prompt at once |
 | `140-wave-mobile-beta-1.2.1-check-on-download-2.apk` | Nov 12 | Same as 139, to try it: from 139, Check now downloads and checks this one |
+| `141-wave-beta-2.1.3-prev-as-menu-option.apk` | Nov 12 | TV: Pointer mode back in the Wave tab (holding Menu still switches); developer options: Page width, and "Previous button acts as Menu" (off by default, all builds; Wave Beta no longer does it by itself); fair shuffle 10 s; safety check right after the download |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
