@@ -5,6 +5,8 @@ Every test build and probe on this branch, newest first, with what changed in it
 ## Nov 12
 
 - **Probe 11** · Wave Probe 9 · [`11-wave-probe-9.apk`](probes/11-wave-probe-9.apk): Records Tidal's page-change commands (router/…) in full, with ids in addresses masked, and the browser history's entry, for opening Settings with Menu
+- **Test 137** · Wave for TV Beta 2.1.3 · [`137-wave-beta-2.1.3-safety-check.apk`](beta/137-wave-beta-2.1.3-safety-check.apk): TV: the same "Safety check passed" message
+- **Test 136** · Wave Mobile Beta 1.2.1 · [`136-wave-mobile-beta-1.2.1-safety-check.apk`](beta/136-wave-mobile-beta-1.2.1-safety-check.apk): Updates: "Safety check passed" shows once Wave has checked the download (its app id and key), before Android's installer
 - **Test 135** · Wave for TV Beta 2.1.3 · [`135-wave-beta-2.1.3-fair-10s.apk`](beta/135-wave-beta-2.1.3-fair-10s.apk): TV: the same fair shuffle change
 - **Test 134** · Wave Mobile Beta 1.2.1 · [`134-wave-mobile-beta-1.2.1-fair-10s.apk`](beta/134-wave-mobile-beta-1.2.1-fair-10s.apk): Fair shuffle: a song counts toward the round only after 10 s of playing (skipped sooner, it stays in the round)
 - **Test 133** · Wave Mobile Beta 1.2.0 · [`133-wave-mobile-beta-1.2.0-peak-red-bar.apk`](beta/133-wave-mobile-beta-1.2.0-peak-red-bar.apk): Phone: the same Digital PEAK meter change
