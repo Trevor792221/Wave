@@ -133,6 +133,8 @@
 | `131-wave-beta-2.1.1-quality-centred.apk` | Nov 12 | TV: the quality line is centred between the cover's frequency numbers and the player's controls (it touched the controls) |
 | `132-wave-beta-2.1.2-peak-red-bar.apk` | Nov 12 | TV: Digital PEAK meter: only the last bar is red, lit only above 0 dBFS (the bars before it cover −40 to 0) |
 | `133-wave-mobile-beta-1.2.0-peak-red-bar.apk` | Nov 12 | Phone: the same Digital PEAK meter change |
+| `134-wave-mobile-beta-1.2.1-fair-10s.apk` | Nov 12 | Fair shuffle: a song counts toward the round only after 10 s of playing (skipped sooner, it stays in the round) |
+| `135-wave-beta-2.1.3-fair-10s.apk` | Nov 12 | TV: the same fair shuffle change |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner

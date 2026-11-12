@@ -5,6 +5,8 @@ Every test build and probe on this branch, newest first, with what changed in it
 ## Nov 12
 
 - **Probe 11** · Wave Probe 9 · [`11-wave-probe-9.apk`](probes/11-wave-probe-9.apk): Records Tidal's page-change commands (router/…) in full, with ids in addresses masked, and the browser history's entry, for opening Settings with Menu
+- **Test 135** · Wave for TV Beta 2.1.3 · [`135-wave-beta-2.1.3-fair-10s.apk`](beta/135-wave-beta-2.1.3-fair-10s.apk): TV: the same fair shuffle change
+- **Test 134** · Wave Mobile Beta 1.2.1 · [`134-wave-mobile-beta-1.2.1-fair-10s.apk`](beta/134-wave-mobile-beta-1.2.1-fair-10s.apk): Fair shuffle: a song counts toward the round only after 10 s of playing (skipped sooner, it stays in the round)
 - **Test 133** · Wave Mobile Beta 1.2.0 · [`133-wave-mobile-beta-1.2.0-peak-red-bar.apk`](beta/133-wave-mobile-beta-1.2.0-peak-red-bar.apk): Phone: the same Digital PEAK meter change
 - **Test 132** · Wave for TV Beta 2.1.2 · [`132-wave-beta-2.1.2-peak-red-bar.apk`](beta/132-wave-beta-2.1.2-peak-red-bar.apk): TV: Digital PEAK meter: only the last bar is red, lit only above 0 dBFS (the bars before it cover −40 to 0)
 - **Test 131** · Wave for TV Beta 2.1.1 · [`131-wave-beta-2.1.1-quality-centred.apk`](beta/131-wave-beta-2.1.1-quality-centred.apk): TV: the quality line is centred between the cover's frequency numbers and the player's controls (it touched the controls)
