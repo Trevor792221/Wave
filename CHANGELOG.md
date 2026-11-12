@@ -4,6 +4,7 @@ Every test build and probe on this branch, newest first, with what changed in it
 
 ## Nov 12
 
+- **Test 124** · Wave for TV Beta 2.1.1 · [`124-wave-beta-2.1.1-no-volume-ring.apk`](beta/124-wave-beta-2.1.1-no-volume-ring.apk): TV: the volume button is really gone in the full-screen player (the ring could still land on the hidden one); the ring skips invisible items
 - **Test 123** · Wave for TV Beta 2.1.1 · [`123-wave-beta-2.1.1-faster-ring.apk`](beta/123-wave-beta-2.1.1-faster-ring.apk): TV: faster ring (positions kept until something that matters changes, moved along when a list scrolls), presses queued (2 at most) instead of dropped
 
 ## Nov 11
