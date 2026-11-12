@@ -686,6 +686,16 @@
   var wasOpen = false;
   function checkPlayerOpened() {
     var open = playerOpen() || playerTabsShown();
+    // TV: no volume control while the full-screen player shows (the remote sets the volume).
+    if (!W.phone && document.documentElement) {
+      if (!document.getElementById('wave-np-css')) {
+        var st = document.createElement('style');
+        st.id = 'wave-np-css';
+        st.textContent = '.wave-np [data-test="volume"]{visibility:hidden!important}';
+        (document.head || document.documentElement).appendChild(st);
+      }
+      document.documentElement.classList.toggle('wave-np', !!open);
+    }
     if (open && !wasOpen) setTimeout(function () { W.ringToPlay(); }, 300); // after it has drawn
     wasOpen = open;
   }
@@ -839,7 +849,11 @@
 
   // ---------- Spatial navigation: a ring that jumps between clickable things ----------
   var SEL = 'a[href],button,input,select,textarea,[role="button"],[role="link"],[role="tab"],' +
-            '[role="menuitem"],[role="option"],[role="checkbox"],[role="switch"],[tabindex]:not([tabindex="-1"])';
+            '[role="menuitem"],[role="option"],[role="checkbox"],[role="switch"],[role="slider"],[tabindex]:not([tabindex="-1"])';
+  // Things that act by themselves. A box that's only focusable (tabindex) or a menu around other
+  // items is left out when it holds them, so the ring goes to each item inside (the profile
+  // menu's entries; a song row's menu, add and heart buttons) instead of ringing the whole box.
+  var ACTS = 'a[href],button,input,select,textarea,[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="option"],[role="checkbox"],[role="switch"],[role="slider"]';
   var ringColor = '#33C3F0'; // the analyzer's colour (the cover's strongest), set by the app
   var cur = null, ring = null, ringOn = false, lastX = 0, lastY = 0, pending = 0;
 
@@ -877,6 +891,7 @@
     if (cache && now - cacheTime < 1000) return cache;
     var all = document.querySelectorAll(SEL), out = [];
     for (var i = 0; i < all.length; i++) {
+      if (!all[i].matches(ACTS) && all[i].querySelector(SEL)) continue; // a box around items: its items instead
       var r = onScreen(all[i]);
       if (r) out.push({ el: all[i], r: r });
     }
@@ -926,7 +941,7 @@
     if (!cur) { if (ring) ring.style.display = 'none'; return; }
     if (!ring) {
       ring = document.createElement('div');
-      ring.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;border-radius:8px;border:3px solid;';
+      ring.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;border-radius:8px;border:3px solid;box-sizing:border-box;margin:0;';
       paintRing();
       document.documentElement.appendChild(ring);
     }
@@ -934,8 +949,9 @@
     lastX = (r.left + r.right) / 2;
     lastY = (r.top + r.bottom) / 2;
     ring.style.display = 'block';
+    // 4 px of room on every side, the border included (so it's centred on the item).
     ring.style.left = (r.left - 4) + 'px'; ring.style.top = (r.top - 4) + 'px';
-    ring.style.width = (r.width + 2) + 'px'; ring.style.height = (r.height + 2) + 'px';
+    ring.style.width = (r.width + 8) + 'px'; ring.style.height = (r.height + 8) + 'px';
   }
   addEventListener('scroll', function () { invalidate(); if (cur && ring) drawRing(); }, true);
   addEventListener('resize', function () { invalidate(); if (cur && ring) drawRing(); });
@@ -948,7 +964,8 @@
     // Stay on the item while it still exists (a tooltip briefly covering it is fine).
     if (cur && document.contains(cur) && rectOf(cur)) { drawRing(); return; }
     cur = null;
-    W.nav('', lastX, lastY);
+    var p = W.nav('', lastX, lastY);
+    if (p) { try { WaveApp.ringMoved(p); } catch (e) {} }
   }
   function schedule() {
     if (ringOn && !pending) pending = setTimeout(refresh, 120);
@@ -1000,6 +1017,7 @@
       select(start);
       return point();
     }
+    if ((d === 'left' || d === 'right') && isSlider(cur)) { var adj = adjust(cur, d === 'right' ? 1 : -1); if (adj) return adj; }
     var next = d ? pick(cur.getBoundingClientRect(), d, list) : null;
     if (d && !retried) {
       // Nothing that way, or the way leads out of an area that can still scroll that way:
@@ -1017,6 +1035,35 @@
     return point();
   };
   W.target = point;
+  // Sliders: left and right change the value (up and down leave). Wave's own sliders and other
+  // range inputs step by a twentieth; Tidal's song position seeks 10 s with its own command;
+  // other sliders get a tap a twentieth further along (the app taps where this says).
+  function isSlider(el) { return el.matches('input[type="range"],[role="slider"],[data-test="progress-bar"]'); }
+  function adjust(el, dir) {
+    if (el.matches('input[type="range"]')) {
+      var min = parseFloat(el.min) || 0, max = parseFloat(el.max), step = parseFloat(el.step) || 1;
+      if (!isFinite(max)) max = 100;
+      var stepBy = Math.max(step, Math.round((max - min) / 20 / step) * step);
+      var v = Math.max(min, Math.min(max, parseFloat(el.value) + dir * stepBy));
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, String(v)); // React sees it too
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      drawRing();
+      return point();
+    }
+    if (el.closest('[data-test="progress-bar"]') || el.matches('[data-test="progress-bar"]')) {
+      try {
+        var pc = fairStore.getState().playbackControls, at = (pc.latestCurrentTime || 0) + dir * 10;
+        fairStore.dispatch({ type: 'playbackControls/SEEK', payload: Math.max(0, at) });
+        return point();
+      } catch (e) {}
+    }
+    var r = el.getBoundingClientRect(), now = parseFloat(el.getAttribute('aria-valuenow')),
+      lo = parseFloat(el.getAttribute('aria-valuemin')) || 0, hi = parseFloat(el.getAttribute('aria-valuemax'));
+    if (!r.width || !isFinite(now) || !isFinite(hi) || hi <= lo) return '';
+    var f = Math.max(0, Math.min(1, (now - lo) / (hi - lo) + dir * 0.05));
+    return Math.round(r.left + f * r.width) + ',' + Math.round((r.top + r.bottom) / 2) + ',' + innerWidth + ',tap';
+  }
   function paintRing() {
     if (!ring) return;
     ring.style.borderColor = ringColor;
@@ -1027,7 +1074,10 @@
   W.ringToPlay = function () {
     if (!ringOn) return; // pointer mode
     var b = document.querySelector('[data-test="footer-player"] [data-test="pause"],[data-test="footer-player"] [data-test="play"]');
-    if (b && usable(b)) select(b);
+    if (b && usable(b)) {
+      select(b);
+      try { WaveApp.ringMoved(point()); } catch (e) {} // the pointer too: no hover card left behind
+    }
   };
   W.ringOff = function () { ringOn = false; cur = null; drawRing(); };
   // Turn the ring on without moving it; it appears as soon as the page has something to ring.
@@ -1654,12 +1704,12 @@
     fHead.appendChild(fReset);
     sd.appendChild(card([fHead, fOut, fIn, fSteps]));
     // The quality line under the album art (FLAC · 16-bit / 44.1 kHz …).
-    var qs = isFinite(info.qualitySize) ? info.qualitySize : 14;
-    var qSize = devSlider('Quality line size', ' sp', 10, 24, 1, qs, function (v) { try { WaveApp.setSetting('qualitySize', v); } catch (e) {} });
+    var qDef = isFinite(info.qualitySizeDefault) ? info.qualitySizeDefault : 14, qs = isFinite(info.qualitySize) ? info.qualitySize : qDef;
+    var qSize = devSlider('Quality line size', ' sp', 6, 24, 1, qs, function (v) { try { WaveApp.setSetting('qualitySize', v); } catch (e) {} });
     var qHead = row('Quality line', 'The size of the line under the album art that shows the song\'s quality.');
     var qReset = el('button', 'wv-btn', 'Reset');
     qReset.type = 'button';
-    qReset.onclick = function () { qSize.set(14); try { WaveApp.setSetting('qualitySize', 14); } catch (e) {} };
+    qReset.onclick = function () { qSize.set(qDef); try { WaveApp.setSetting('qualitySize', qDef); } catch (e) {} };
     qHead.appendChild(qReset);
     sd.appendChild(card([qHead, qSize]));
     if (info.beta) { // test builds: crash on purpose to try it
@@ -2517,6 +2567,27 @@
       clearInterval(timer);
       try { sessionStorage.setItem(KEY, '1'); } catch (e) {}
       b.click();
+    }, 500);
+  })();
+
+  // TV: once, Tidal's Uploads tab hidden and My Collection pinned to the sidebar, with the
+  // commands its own Settings switches send (seen with Wave Probe 8: settings/SET_HIDE_UPLOAD_TAB
+  // and settings/SET_PIN_COLLECTION_TO_SIDEBAR, payload true/false). Afterwards those switches work
+  // as usual and Wave leaves them be.
+  (function () {
+    var KEY = 'wave.tvDefaults', tries = 0;
+    try { if (localStorage.getItem(KEY)) return; } catch (e) {}
+    var timer = setInterval(function () {
+      if (W.phone || ++tries > 60) { clearInterval(timer); return; } // phones; or Tidal not ready in 30 s: next start
+      var set;
+      try { fairAttach(); set = fairStore && fairStore.getState().settings; } catch (e) {}
+      if (!set || typeof set.hideUploadTab !== 'boolean') return;
+      clearInterval(timer);
+      try {
+        if (!set.hideUploadTab) fairStore.dispatch({ type: 'settings/SET_HIDE_UPLOAD_TAB', payload: true });
+        if (!set.pinCollectionToSidebar) fairStore.dispatch({ type: 'settings/SET_PIN_COLLECTION_TO_SIDEBAR', payload: true });
+        localStorage.setItem(KEY, '1');
+      } catch (e) {}
     }, 500);
   })();
 

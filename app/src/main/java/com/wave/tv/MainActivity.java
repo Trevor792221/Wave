@@ -400,6 +400,15 @@ public final class MainActivity extends Activity {
         web.evaluateJavascript("window.__wave?__wave.nav('" + dir + "'," + cssX() + "," + cssY() + "):''",
                 res -> {
                     ringBusy = false;
+                    String v = res == null ? "" : res.replace("\"", "");
+                    if (v.endsWith(",tap")) { // a slider: tap it where the new value is
+                        if (onRingPoint(v.substring(0, v.length() - 4))) {
+                            touchDownTime = SystemClock.uptimeMillis();
+                            touch(MotionEvent.ACTION_DOWN);
+                            touch(MotionEvent.ACTION_UP);
+                        }
+                        return;
+                    }
                     onRingPoint(res);
                 });
     }
@@ -842,7 +851,7 @@ public final class MainActivity extends Activity {
                         .put("vuStyle", prefs.getInt("vuStyle", 0))
                         .put("miniMeters", prefs.getBoolean("miniMeters", false))
                         .put("vizAdaptive", prefs.getBoolean("vizAdaptive", true))
-                        .put("qualitySize", prefs.getInt("qualitySize", 14))
+                        .put("qualitySize", prefs.getInt("qualitySize", QUALITY_SIZE)).put("qualitySizeDefault", QUALITY_SIZE)
                         .put("anaAdaptive", prefs.getBoolean("anaAdaptive", true))
                         .put("vizColor", String.format("#%06X", prefs.getInt("vizColor", 0x33C3F0) & 0xFFFFFF))
                         .put("textSize", prefs.getInt("pageScale", 100))
@@ -903,7 +912,7 @@ public final class MainActivity extends Activity {
                 case "vuStyle": e.putInt(key, value == 1 || value == 2 ? value : 0); break;
                 case "vizColor": e.putInt(key, value & 0xFFFFFF); break;
                 case "textSize": e.putInt("pageScale", Math.max(80, Math.min(130, value))); break;
-                case "qualitySize": e.putInt(key, Math.max(10, Math.min(24, value))); break; // sp (developer options)
+                case "qualitySize": e.putInt(key, Math.max(6, Math.min(24, value))); break; // sp (developer options)
                 default: return;
             }
             e.apply();
@@ -912,7 +921,7 @@ public final class MainActivity extends Activity {
                 updateSpectrum();
                 if ("textSize".equals(key)) applyViewport();
                 if ("qualitySize".equals(key) && qualityView != null) {
-                    qualityView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, prefs.getInt("qualitySize", 14));
+                    qualityView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, prefs.getInt("qualitySize", QUALITY_SIZE));
                     placeQuality();
                 }
             });
@@ -937,6 +946,13 @@ public final class MainActivity extends Activity {
         public long sleepLeft() {
             long at = sleepAt;
             return at == 0 ? 0 : Math.max(0, at - android.os.SystemClock.uptimeMillis());
+        }
+
+        /** The page moved the ring by itself (the player opened, the page changed): the pointer
+         *  follows, so a hover card left behind (e.g. an artist's) closes. "x,y,viewportWidth". */
+        @JavascriptInterface
+        public void ringMoved(String point) {
+            handler.post(() -> { if (ringMode) onRingPoint(point); });
         }
 
         /** For the About tab: which permissions Android asks about are allowed (JSON). */
@@ -1137,6 +1153,8 @@ public final class MainActivity extends Activity {
     // Under the cover in the full-screen player (below the analyzer's frequencies), and in the
     // notification: what Tidal is actually streaming.
     private android.widget.TextView qualityView;
+    /** The quality line's size (sp) to start with: smaller on the TV, seen from across the room on a big screen. */
+    private static final int QUALITY_SIZE = BuildConfig.TV ? 9 : 14;
     /** Tidal's quality code for what's streaming (LOW, HIGH, LOSSLESS, HI_RES_LOSSLESS). */
     private String qualityTier = "", shownTier = null;
 
@@ -1197,7 +1215,7 @@ public final class MainActivity extends Activity {
         if (qualityView == null) {
             qualityView = new android.widget.TextView(this);
             qualityView.setTextColor(0xB3FFFFFF);
-            qualityView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, prefs.getInt("qualitySize", 14));
+            qualityView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, prefs.getInt("qualitySize", QUALITY_SIZE));
             int ph = Math.round(28 * density), pv = Math.round(8 * density);
             qualityView.setPadding(ph, pv, ph, pv); // room for the glow around the text
             qualityView.setGravity(android.view.Gravity.CENTER);
