@@ -126,6 +126,7 @@
 | `124-wave-beta-2.1.1-no-volume-ring.apk` | Nov 12 | TV: the volume button is really gone in the full-screen player (the ring could still land on the hidden one); the ring skips invisible items |
 | `125-wave-beta-2.1.1-stay-in-row.apk` | Nov 12 | TV: left and right stay on the ring's own line, however far the next item is (no jumping up or down to something nearer) |
 | `126-wave-beta-2.1.1-menu-settings.apk` | Nov 12 | TV: Menu opens Tidal's Settings inside the page (music plays on), ring to the Settings tabs; in Wave Beta the Previous button stands in for Menu; highlight/pointer mode is now a switch in the Wave tab |
+| `127-wave-beta-2.1.1-menu-settings-probed.apk` | Nov 12 | TV: Menu (Previous in Wave Beta) opens Settings with Tidal's exact command (seen with Wave Probe 9: router/PUSH "/settings") |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
