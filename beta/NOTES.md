@@ -128,6 +128,7 @@
 | `126-wave-beta-2.1.1-menu-settings.apk` | Nov 12 | TV: Menu opens Tidal's Settings inside the page (music plays on), ring to the Settings tabs; in Wave Beta the Previous button stands in for Menu; highlight/pointer mode is now a switch in the Wave tab |
 | `127-wave-beta-2.1.1-menu-settings-probed.apk` | Nov 12 | TV: Menu (Previous in Wave Beta) opens Settings with Tidal's exact command (seen with Wave Probe 9: router/PUSH "/settings") |
 | `128-wave-beta-2.1.1-own-messages.apk` | Nov 12 | Wave draws its own short messages (with the wave mark) instead of Android's toasts, which showed a stock icon on the TV |
+| `129-wave-beta-2.1.1-menu-hold-pointer.apk` | Nov 12 | TV: holding Menu (Previous in Wave Beta) switches between the ring and the pointer; page width is a setting in the Wave tab (Display) |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
