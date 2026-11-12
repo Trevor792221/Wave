@@ -137,6 +137,7 @@
 | `135-wave-beta-2.1.3-fair-10s.apk` | Nov 12 | TV: the same fair shuffle change |
 | `136-wave-mobile-beta-1.2.1-safety-check.apk` | Nov 12 | Updates: "Safety check passed" shows once Wave has checked the download (its app id and key), before Android's installer |
 | `137-wave-beta-2.1.3-safety-check.apk` | Nov 12 | TV: the same "Safety check passed" message |
+| `138-wave-mobile-beta-1.2.1-safety-check-2.apk` | Nov 12 | Same as 136, to try the "Safety check passed" message: from 136, Check now installs this one |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
