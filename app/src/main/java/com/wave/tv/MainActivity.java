@@ -327,9 +327,9 @@ public final class MainActivity extends Activity {
             case KeyEvent.KEYCODE_MEDIA_REWIND:
             case KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD:
             case KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD:
-                // Test builds of Wave for TV: Previous stands in for Menu, for trying Menu on a
-                // remote without one. Released builds: Previous is the previous song, as always.
-                if (BuildConfig.TV && BuildConfig.BETA) {
+                // Wave for TV, with the developer option on: Previous acts as Menu, for remotes
+                // without one. Otherwise Previous is the previous song, as always.
+                if (BuildConfig.TV && prefs.getBoolean("prevAsMenu", false)) {
                     menuKey(down, e.getRepeatCount());
                     return true;
                 }
@@ -919,7 +919,7 @@ public final class MainActivity extends Activity {
                         .put("textSize", prefs.getInt("pageScale", 100))
                         .put("textSizeMax", maxPageScale())
                         .put("phone", !BuildConfig.TV)
-                        .put("pageWidth", VIEWPORT_WIDTHS[widthIndex])
+                        .put("pageWidth", VIEWPORT_WIDTHS[widthIndex]).put("pointerMode", !ringMode).put("prevAsMenu", prefs.getBoolean("prevAsMenu", false))
                         .put("beta", BuildConfig.BETA)
                         .put("crashRelay", CrashReports.available()).toString();
             } catch (org.json.JSONException e) {
@@ -970,12 +970,15 @@ public final class MainActivity extends Activity {
         public void setSetting(String key, int value) {
             SharedPreferences.Editor e = prefs.edit();
             switch (key == null ? "" : key) {
-                case "analyzerOn": case "labelsOn": case "vuOn": case "vuMatch": case "miniMeters": case "vizAdaptive": case "anaAdaptive": e.putBoolean(key, value != 0); break;
+                case "analyzerOn": case "labelsOn": case "vuOn": case "vuMatch": case "miniMeters": case "vizAdaptive": case "anaAdaptive": case "prevAsMenu": e.putBoolean(key, value != 0); break;
                 case "vuOpacity": e.putInt(key, Math.max(0, Math.min(100, value))); break;
                 case "vuStyle": e.putInt(key, value == 1 || value == 2 ? value : 0); break;
                 case "vizColor": e.putInt(key, value & 0xFFFFFF); break;
                 case "textSize": e.putInt("pageScale", Math.max(80, Math.min(130, value))); break;
                 case "qualitySize": e.putInt(key, Math.max(6, Math.min(24, value))); break; // sp (developer options)
+                case "pointerMode": // TV: the pointer instead of the highlight ring (the Wave tab; holding Menu too)
+                    handler.post(() -> { if (ringMode == (value != 0)) toggleMode(); });
+                    return;
                 case "pageWidth": // TV: how wide Tidal's page is drawn (the Wave tab)
                     handler.post(() -> {
                         for (int i = 0; i < VIEWPORT_WIDTHS.length; i++) {

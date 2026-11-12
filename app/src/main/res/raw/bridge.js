@@ -462,18 +462,43 @@
     if (!fairOn) return; // fair shuffle switched off: Tidal's own shuffle
     var heard = {}, i;
     for (i = 0; i < mem.h.length; i++) heard[mem.h[i]] = 1;
+    fairPending = null; // the song before this one: counted already, or played too short to count
 
     if (q.shuffleModeEnabled && (movedOn || started) && !picked && heard[id]) {
       for (var step = 1; step < n; step++) {
         var j = (idx + step) % n;
-        if (!heard[String(q.elements[j].mediaItemId)]) { fairJumpSoon(src, idx, id, j); return; } // that song is marked then
+        if (!heard[String(q.elements[j].mediaItemId)]) { fairJumpSoon(src, idx, id, j); return; } // that song counts once it has played 10 s
       }
       mem.h = []; // nothing unheard left (shouldn't happen: rounds end at their last song)
       heard = {};
     }
-    if (!heard[id]) { mem.h.push(id); heard[id] = 1; }
-    var count = 0;
-    for (i = 0; i < n; i++) if (heard[String(q.elements[i].mediaItemId)]) count++;
+    // The song counts as played once it has really played for 10 s (fairListen): skipped sooner,
+    // it stays in the round.
+    fairPending = heard[id] ? null : { src: src, id: id, ms: 0, at: 0 };
+    fairSave();
+    renderRounds();
+  }
+  var fairPending = null, FAIR_LISTEN_MS = 10000;
+  // Once a second: playing time of the song that's on, while it plays (not while paused or after a
+  // seek ahead). At 10 s it's marked played in its list's round.
+  function fairListen() {
+    var pd = fairPending, q = fairQueue();
+    if (!pd || !q || !fairOn) { if (pd) pd.at = 0; return; }
+    var el = q.elements[q.currentIndex];
+    if (!el || String(el.mediaItemId) !== pd.id || !fairLast || fairLast.src !== pd.src) { fairPending = null; return; }
+    var playing = false;
+    try { playing = fairStore.getState().playbackControls.playbackState === 'PLAYING'; } catch (e) {}
+    var now = Date.now();
+    if (playing && pd.at) pd.ms += Math.min(now - pd.at, 5000); // a late tick counts for at most 5 s
+    pd.at = playing ? now : 0;
+    if (pd.ms < FAIR_LISTEN_MS) return;
+    fairPending = null;
+    var mem = fairMem[pd.src];
+    if (!mem) return;
+    var n = mem.size || q.elements.length, heard = {}, i, count = 0;
+    if (mem.h.indexOf(pd.id) < 0) mem.h.push(pd.id);
+    for (i = 0; i < mem.h.length; i++) heard[mem.h[i]] = 1;
+    for (i = 0; i < n && i < q.elements.length; i++) if (heard[String(q.elements[i].mediaItemId)]) count++;
     if (count >= n) {
       mem.h = []; // the round is complete: the next song (or next time) starts a new one
       if (q.shuffleModeEnabled) note('Fair shuffle: all ' + n + ' played, new round next');
@@ -483,6 +508,7 @@
     fairSave();
     renderRounds();
   }
+  setInterval(fairListen, 1000);
   // ---------- Spectrum analyzer placement ----------
   // While Tidal's full-screen player is open, tell the app where the analyzer's bars go: over the
   // lower part of the cover art, standing on the cover's bottom edge and as wide as the cover
@@ -1626,6 +1652,9 @@
     // Tapping the version 5 times turns on the developer options (below).
     var taps = 0, tapAt = 0, verTitle = ver.querySelector('.wv-t');
     verTitle.style.cursor = 'pointer';
+    verTitle.setAttribute('role', 'button'); // the TV's highlight ring can land on it (OK taps it)
+    verTitle.setAttribute('tabindex', '0');
+    verTitle.style.outline = 'none';
     verTitle.onclick = function () {
       var now = Date.now();
       taps = now - tapAt < 1500 ? taps + 1 : 1;
@@ -1705,15 +1734,11 @@
     p.appendChild(ss);
     showSleep();
 
-    if (!info.phone) { // TV: how wide Tidal's page is drawn (was Menu's hold; holding Menu now switches ring/pointer)
-      var sr = section('Display');
-      var pw = row('Page width', 'How wide Tidal\'s page is laid out: wider fits more on screen, narrower makes everything bigger.');
-      var pwSel = el('select', 'wv-sel');
-      [1280, 1440, 1600, 1920].forEach(function (w) { var op = el('option', '', w + ' px'); op.value = String(w); pwSel.appendChild(op); });
-      pwSel.value = String(info.pageWidth || 1440);
-      pwSel.onchange = function () { try { WaveApp.setSetting('pageWidth', Number(pwSel.value)); } catch (e) {} };
-      pw.appendChild(pwSel);
-      sr.appendChild(card([pw]));
+    if (!info.phone) { // TV: the pointer instead of the ring (holding Menu switches too)
+      var sr = section('Remote');
+      var pm = row('Pointer mode', 'The arrow keys move a pointer instead of the highlight ring that jumps between buttons. Holding Menu switches too.');
+      pm.appendChild(toggle(!!info.pointerMode, function (v) { try { WaveApp.setSetting('pointerMode', v ? 1 : 0); } catch (e) {} }));
+      sr.appendChild(card([pm]));
       p.appendChild(sr);
     }
 
@@ -1788,6 +1813,17 @@
     qReset.onclick = function () { qSize.set(qDef); try { WaveApp.setSetting('qualitySize', qDef); } catch (e) {} };
     qHead.appendChild(qReset);
     sd.appendChild(card([qHead, qSize]));
+    if (!info.phone) { // TV: page width and the Previous button as Menu
+      var pw = row('Page width', 'How wide Tidal\'s page is laid out: wider fits more on screen, narrower makes everything bigger.');
+      var pwSel = el('select', 'wv-sel');
+      [1280, 1440, 1600, 1920].forEach(function (w) { var op = el('option', '', w + ' px'); op.value = String(w); pwSel.appendChild(op); });
+      pwSel.value = String(info.pageWidth || 1440);
+      pwSel.onchange = function () { try { WaveApp.setSetting('pageWidth', Number(pwSel.value)); } catch (e) {} };
+      pw.appendChild(pwSel);
+      var pv = row('Previous button acts as Menu', 'For remotes without a Menu button: Previous opens Settings, and holding it switches between the ring and the pointer (it no longer goes to the previous song).');
+      pv.appendChild(toggle(!!info.prevAsMenu, function (v) { try { WaveApp.setSetting('prevAsMenu', v ? 1 : 0); } catch (e) {} }));
+      sd.appendChild(card([pw, pv]));
+    }
     if (info.beta) { // test builds: crash on purpose to try it
       var tc = row('Test crash', 'Stops Wave on purpose and opens it again, to try the crash report. Wave Beta only.');
       var tb = el('button', 'wv-btn', 'Crash');
@@ -1959,7 +1995,7 @@
   ];
   // What Wave adds to Tidal (the same list is in the README), before the permissions.
   var FEATURES = [
-    ['Fair shuffle', 'With shuffle on, no song repeats until every song in the list has played. Hold the shuffle button to switch it; the Wave tab shows how many have played this round, with a reset.'],
+    ['Fair shuffle', 'With shuffle on, no song repeats until every song in the list has played (a song counts after 10 seconds of playing). Hold the shuffle button to switch it; the Wave tab shows how many have played this round, with a reset.'],
     ['Soft pause', 'Pausing fades the music out and playing fades it back in, with no click.'],
     ['Back where you left off', 'Wave opens on the song you were playing, at the same spot.'],
     ['Sleep timer', 'Pauses the music after 30 minutes to 4 hours, also with Wave in the background.'],
@@ -1973,7 +2009,7 @@
     ['Swipes on the album art (phone)', 'Swipe left or right for the next or previous song, down to close the player; tap a song to play it.'],
     ['S Pen (phone)', 'Press the pen\'s button once to play or pause, twice for the next song.'],
     ['Remote control (TV)', 'A highlight ring that jumps between buttons with the arrow keys, or a pointer (hold Menu to switch). Menu opens Settings.'],
-    ['Page widths (TV)', 'How wide Tidal\'s page is drawn: a setting in the Wave tab.']
+    ['Page widths (TV)', 'How wide Tidal\'s page is drawn: a developer option.']
   ];
   var featBox = null;
   function featuresTick(page, first) {

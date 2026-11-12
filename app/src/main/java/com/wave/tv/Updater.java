@@ -84,12 +84,60 @@ final class Updater {
                 state = "error";
                 text = "Couldn't check for updates. Check the connection and try again.";
             }
+            if ("available".equals(state)) { // downloaded and checked now; Install then just installs
+                String name = text.replace(" is available", "");
+                main.post(() -> l.status("downloading", "Downloading " + name + "…"));
+                int got = fetchVerified();
+                if (got == 1) {
+                    text = name + " is ready to install";
+                } else {
+                    state = "error";
+                    text = got == 0 ? "Couldn't download the update. Check the connection and try again."
+                            : "Update verification failed twice, so it wasn't installed. Check now tries again.";
+                }
+            }
             String s = state, t = text;
             main.post(() -> {
                 busy = false;
                 l.status(s, t);
             });
         }).start();
+    }
+
+    private java.io.File ready; // the newest update, downloaded and checked
+    private String readyFor;
+
+    /**
+     * Downloads the newest APK and checks it's really Wave (this app's id, signed with this app's
+     * key): "Safety check passed", or "Update verification failed" and once more by itself.
+     * 1: ready; 0: couldn't download; -1: failed the check twice. On a background thread.
+     */
+    private int fetchVerified() {
+        java.io.File apk = new java.io.File(activity.getCacheDir(), "update.apk");
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                HttpURLConnection con = open(newestUrl);
+                try (InputStream in = con.getInputStream(); OutputStream out = new java.io.FileOutputStream(apk)) {
+                    byte[] buf = new byte[65536];
+                    for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+                } finally {
+                    con.disconnect();
+                }
+            } catch (Exception e) {
+                apk.delete();
+                return 0;
+            }
+            boolean ok = isWave(apk);
+            String msg = ok ? "Safety check passed" : "Update verification failed";
+            main.post(() -> { if (activity instanceof MainActivity) ((MainActivity) activity).say(msg, !ok); });
+            if (ok) {
+                ready = apk;
+                readyFor = newest;
+                return 1;
+            }
+            apk.delete();
+        }
+        return -1;
     }
 
     /** Wave Beta: the highest-numbered test build of this app on the test-builds branch. */
@@ -151,40 +199,28 @@ final class Updater {
      * second failure it stops (Check now starts over).
      */
     void install(Listener l) {
-        install(l, 1);
-    }
-
-    private void install(Listener l, int attempt) {
         if (busy || newestUrl == null) return;
         busy = true;
         String what = appName() + " " + (BuildConfig.BETA ? testName(Integer.parseInt(newest)) : newest);
-        l.status("downloading", "Downloading " + what + "…");
         watchResult(l);
-        String url = newestUrl;
         new Thread(() -> {
-            java.io.File apk = new java.io.File(activity.getCacheDir(), "update.apk");
             PackageInstaller.Session session = null;
+            java.io.File apk = null;
             try {
-                HttpURLConnection con = open(url);
-                try (InputStream in = con.getInputStream(); OutputStream out = new java.io.FileOutputStream(apk)) {
-                    byte[] buf = new byte[65536];
-                    for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
-                } finally {
-                    con.disconnect();
+                if (ready == null || !ready.exists() || !newest.equals(readyFor)) { // not downloaded yet
+                    main.post(() -> l.status("downloading", "Downloading " + what + "…"));
+                    int got = fetchVerified();
+                    if (got != 1) {
+                        main.post(() -> {
+                            busy = false;
+                            l.status("error", got == 0 ? "Couldn't download the update. Check the connection and try again."
+                                    : "Update verification failed twice, so it wasn't installed. Check now tries again.");
+                        });
+                        return;
+                    }
                 }
-                if (!isWave(apk)) {
-                    apk.delete();
-                    main.post(() -> {
-                        busy = false;
-                        if (activity instanceof MainActivity) ((MainActivity) activity).say("Update verification failed", true);
-                        if (attempt < 2) {
-                            install(l, attempt + 1); // once more, by itself
-                        } else {
-                            l.status("error", "Update verification failed twice, so it wasn't installed. Check now tries again.");
-                        }
-                    });
-                    return;
-                }
+                apk = ready;
+                ready = null;
                 PackageInstaller pi = activity.getPackageManager().getPackageInstaller();
                 PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
                 params.setAppPackageName(activity.getPackageName());
@@ -203,11 +239,11 @@ final class Updater {
                 session.close();
                 main.post(() -> l.status("installing", "Installing " + what + "…"));
             } catch (Exception e) {
-                apk.delete();
+                if (apk != null) apk.delete();
                 if (session != null) session.abandon();
                 main.post(() -> {
                     busy = false;
-                    l.status("error", "Couldn't download the update. Check the connection and try again.");
+                    l.status("error", "Couldn't install the update. Try again.");
                 });
             }
         }).start();

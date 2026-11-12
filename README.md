@@ -16,7 +16,7 @@ Wave opens Tidal's web player full screen and makes it work with a TV remote. Pl
 
 What Wave adds to Tidal's web player (also listed in the app: Settings → About). Marked ones are only in Wave Mobile (phone) or Wave for TV (TV).
 
-- **Fair shuffle**: with shuffle on, no song repeats until every song in the list has played. Hold the shuffle button to switch it; the Wave tab shows how many have played this round, with a reset.
+- **Fair shuffle**: with shuffle on, no song repeats until every song in the list has played (a song counts once it has played for 10 seconds, so skipped songs stay in the round). Hold the shuffle button to switch it; the Wave tab shows how many have played this round, with a reset.
 - **Soft pause**: pausing fades the music out and playing fades it back in, with no click.
 - **Back where you left off**: Wave opens on the song you were playing, at the same spot.
 - **Sleep timer**: pauses the music after 30 minutes to 4 hours, also with Wave in the background.
@@ -30,11 +30,11 @@ What Wave adds to Tidal's web player (also listed in the app: Settings → About
 - **Swipes on the album art** (phone): swipe left or right for the next or previous song, down to close the player; tap a song to play it.
 - **S Pen** (phone): press the pen's button once to play or pause, twice for the next song.
 - **Remote control** (TV): a highlight ring that jumps between buttons with the arrow keys, or a pointer (hold Menu to switch). Menu opens Settings.
-- **Page widths** (TV): how wide Tidal's page is drawn, a setting in the Wave tab (Display).
+- **Page widths** (TV): how wide Tidal's page is drawn, a developer option.
 
 ## Remote controls
 
-Wave has two ways to get around, switched by holding **Menu**:
+Wave has two ways to get around, switched by holding **Menu** or with **Pointer mode** in the Wave tab:
 
 - **Highlight mode** (default): a ring jumps between buttons, links and other clickable things. It takes the colour of the song's cover.
 - **Pointer mode**: an on-screen pointer, for things like dragging the seek bar.
@@ -49,7 +49,7 @@ Wave has two ways to get around, switched by holding **Menu**:
 | Channel ▲▼ / Page ▲▼ | Scroll faster | Same |
 | Play/Pause, Next, Previous | Control playback, also while Wave is in the background | Same |
 
-Fast-forward and rewind buttons act as Next and Previous. In Wave Beta test builds for TV, the Previous button stands in for Menu (for trying Menu on a remote without one), so it doesn't go to the previous song there. In a scrolling list the ring scrolls the list before moving on, and it follows the page when Tidal opens a new one.
+Fast-forward and rewind buttons act as Next and Previous. For remotes without a Menu button, the developer option **Previous button acts as Menu** makes Previous do Menu's jobs (it then doesn't go to the previous song). In a scrolling list the ring scrolls the list before moving on, and it follows the page when Tidal opens a new one.
 
 Clicking anywhere on a song in a list (its number, cover, title or artist) plays it; the **...** menu works as usual.
 
@@ -76,7 +76,7 @@ In **Settings → General**, Tidal's single audio quality is replaced by two: **
 
 **Satellite data** (T-Mobile's T-Satellite with Starlink, and other carriers' satellite data, Android 15 and later): Android only lets apps that declare themselves satellite-ready use a satellite connection, and Wave does. On satellite, Wave uses the **On mobile data** quality with Tidal's **Adaptive streaming** always on, so the quality drops to what the slow link carries; back on Wi-Fi or mobile data, Adaptive streaming goes back to how it was. Satellite data is slow and limited, so expect slow loading; whether the carrier's plan carries an app's data is up to the carrier.
 
-**Developer options**: tapping the version 5 times in the **Updates** tab (which also has the license) shows them: **Soft pause fades** (fade-out and fade-in length, 800 ms each to start, and the number of volume steps, 200), **Quality line** size (14 sp to start), and in Wave Beta builds **Test crash**. **Hide** puts them away again.
+**Developer options**: tapping the version 5 times in the **Updates** tab (which also has the license) shows them: on TV **Page width** and **Previous button acts as Menu**; **Soft pause fades** (fade-out and fade-in length, 800 ms each to start, and the number of volume steps, 200), **Quality line** size (14 sp to start), and in Wave Beta builds **Test crash**. **Hide** puts them away again.
 
 While music plays, a notification shows the song, artist, cover and progress, with previous, play/pause and next. These buttons, the lock screen, headphone buttons and Android Auto all send Tidal's own player commands, the same ones its player buttons send.
 
