@@ -29,15 +29,15 @@ android {
         create("tv") {
             dimension = "device"
             applicationId = "com.wave.tv"
-            versionCode = 46
-            versionName = "2.1.2"
+            versionCode = 47
+            versionName = "2.1.3"
             buildConfigField("boolean", "TV", "true")
         }
         create("mobile") {
             dimension = "device"
             applicationId = "com.wave.mobile"
-            versionCode = 120
-            versionName = "1.2.0"
+            versionCode = 121
+            versionName = "1.2.1"
             buildConfigField("boolean", "TV", "false")
         }
     }

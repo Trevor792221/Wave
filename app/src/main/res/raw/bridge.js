@@ -2215,16 +2215,21 @@
       x.fillStyle = (m.kind === 'VU' ? sv >= 0 : sv > 0.05) ? RED : 'rgba(255,255,255,.9)';
       x.fillText((sv > 0.05 ? '+' : sv < -0.05 ? '−' : '') + Math.abs(sv).toFixed(1) + (m.kind === 'VU' ? ' VU' : ' dB'), left + w - pad, top + pad + ts * 0.8);
       var N = 24, st = top + h * 0.42, sb = top + h * 0.66, sl = left + pad, sr = left + w - pad, gap = 1.2, sw = (sr - sl - gap * (N - 1)) / N;
-      var hs = Math.min(N - 1, Math.floor(m.held * N));
+      // PEAK: the bars up to the last one cover −40 to 0 dBFS; the last one alone is red and lights only
+      // above 0 (the output clipped). VU: red from 0 VU, as on its scale.
+      var pk = m.kind !== 'VU', over = place(m.kind, 0.05);
+      var barAt = function (pos) { return !pk ? pos * N : pos <= redFrom ? pos / redFrom * (N - 1) : N - 1 + (pos - redFrom) / (1 - redFrom); };
+      var hs = pk && m.held >= over ? N - 1 : Math.min(pk ? N - 2 : N - 1, Math.floor(barAt(m.held))); // the held peak: the red bar only for an over
       for (var i = 0; i < N; i++) {
-        var mid = (i + 0.5) / N, red = mid >= redFrom, lit = mid <= m.pos || (i === hs && m.held > 0.02);
+        var mid = (i + 0.5) / N, red = pk ? i === N - 1 : mid >= redFrom;
+        var lit = (pk && i === N - 1 ? m.pos >= over : barAt(m.pos) >= i + 0.5) || (i === hs && m.held > 0.02);
         x.fillStyle = red ? (lit ? RED : 'rgba(229,72,77,.15)') : (lit ? color : rgba(color, 0.15));
         x.fillRect(sl + i * (sw + gap), st, sw, sb - st);
       }
       x.font = '500 ' + ts * 0.85 + 'px sans-serif';
       x.textAlign = 'center';
       (m.kind === 'VU' ? [-20, -5, 0, 3] : [-40, -20, -10, 0]).forEach(function (v) {
-        var half = x.measureText('+3').width / 2, px = sl + (sr - sl) * place(m.kind, v);
+        var half = x.measureText('+3').width / 2, px = sl + (sr - sl) * barAt(place(m.kind, v)) / N;
         x.fillStyle = isRed(v) ? RED : 'rgba(255,255,255,.7)';
         x.fillText((v > 0 ? '+' : '') + v, Math.max(sl + half, Math.min(sr - half, px)), sb + ts * 1.15);
       });
