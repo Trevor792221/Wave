@@ -556,8 +556,11 @@
     if (covered({ left: cover.left, top: top, width: cover.width, height: h }, box, onBar ? bar : null)) return 'off';
     var url = coverEl && coverEl.tagName === 'IMG' ? (coverEl.currentSrc || coverEl.src || '') : '';
     // l,t,w,h (the analyzer's box), page width, and the top of the cover's visible part (for the meters).
-    // ...and whether the cover's bottom is hidden (then there's no room for the quality line under it).
-    return [Math.round(cover.left), Math.round(top), Math.round(cover.width), Math.round(h), vw, Math.round(visTop), clipped ? 1 : 0].join(',') + '|' + url;
+    // ...and whether the cover's bottom is hidden (then there's no room for the quality line under it),
+    // and (TV) the top of the player's controls below the cover, to centre the quality line between.
+    var ctl = !W.phone && document.querySelector('[data-test="play-controls"]'), cr = ctl && rectOf(ctl);
+    var ctlTop = cr && cr.top > cover.bottom ? Math.round(cr.top) : 0;
+    return [Math.round(cover.left), Math.round(top), Math.round(cover.width), Math.round(h), vw, Math.round(visTop), clipped ? 1 : 0, ctlTop].join(',') + '|' + url;
   }
   // The small analyzer in Tidal's player bar: between the time readout (or the play controls)
   // and the buttons on the right, coloured from the bar's own small cover, while the full-screen
@@ -679,6 +682,11 @@
     var b = document.querySelector('[data-test="player-details-toggle-now-playing"]');
     if (!b || b.contains(t)) return; // the cover: Tidal opens it itself
     if (t.closest('button,[role="button"],[role="slider"],input,[data-test="play-controls"],[data-test="progress-bar"]')) return;
+    // Only the song's own row: Tidal's bottom tabs (Home, Feed, Upload, Collection, Search) are in
+    // the same box, below it, and must work as usual.
+    var br = b.getBoundingClientRect(), y = e.clientY;
+    if (!br.height || y < br.top - 12 || y > br.bottom + 12) return;
+    if (t.closest('a[href]') && !t.closest('[data-test="footer-track-title"],[data-test="footer-artist-name"]')) return;
     e.preventDefault();
     e.stopPropagation();
     b.click();
@@ -691,7 +699,7 @@
       if (!document.getElementById('wave-np-css')) {
         var st = document.createElement('style');
         st.id = 'wave-np-css';
-        st.textContent = '.wave-np [data-test="volume"]{visibility:hidden!important}';
+        st.textContent = '.wave-np [data-test="volume"]{display:none!important}'; // gone, so the ring can't land on it
         (document.head || document.documentElement).appendChild(st);
       }
       document.documentElement.classList.toggle('wave-np', !!open);
@@ -871,6 +879,7 @@
   function usable(el) {
     var r = onScreen(el), vw = innerWidth, vh = innerHeight;
     if (!r || el.disabled || el.closest('[aria-hidden="true"],[inert]')) return null;
+    if (getComputedStyle(el).visibility === 'hidden') return null; // there, but not shown
     if (/full.?screen/i.test(label(el))) return null; // refused anyway (see above)
     // Probe the centre and two inner corners, so items half-cut by a scrolling area still count.
     var pts = [[(r.left + r.right) / 2, (r.top + r.bottom) / 2], [r.left + 3, r.top + 3], [r.right - 3, r.bottom - 3]];
@@ -883,17 +892,21 @@
   }
   // On-screen items by geometry only; the expensive hit test runs later, best-first, on a few.
   // Measuring every item is the slow part, so the list is reused until something can move items
-  // (scroll, resize, DOM change) or for at most a second.
+  // (scroll, resize, a change to the page that matters) or for at most 5 seconds.
   var cache = null, cacheTime = 0;
-  function invalidate() { cache = null; }
+  var cacheShift = { x: 0, y: 0 };
+  function invalidate() { cache = null; cacheShift = { x: 0, y: 0 }; }
   function candidates() {
     var now = Date.now();
-    if (cache && now - cacheTime < 1000) return cache;
-    var all = document.querySelectorAll(SEL), out = [];
+    if (cache && now - cacheTime < 5000) return cache; // kept until something that matters changes (or 5 s)
+    // Items up to a screen beyond each edge are kept too, so after a scroll their positions are
+    // just moved along (see the scroll listener) instead of everything being measured again.
+    var all = document.querySelectorAll(SEL), out = [], vw = innerWidth, vh = innerHeight;
     for (var i = 0; i < all.length; i++) {
       if (!all[i].matches(ACTS) && all[i].querySelector(SEL)) continue; // a box around items: its items instead
-      var r = onScreen(all[i]);
-      if (r) out.push({ el: all[i], r: r });
+      var r = rectOf(all[i]);
+      if (!r || r.bottom <= -vh || r.top >= 2 * vh || r.right <= -vw || r.left >= 2 * vw || r.width * r.height > vw * vh * 0.6) continue;
+      out.push({ el: all[i], r: { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height } });
     }
     cache = out;
     cacheTime = now;
@@ -908,10 +921,14 @@
   function gap(a1, a2, b1, b2) { return b1 > a2 ? b1 - a2 : a1 > b2 ? a1 - b2 : 0; }
 
   // Best candidate from rect c in direction d: nearest along d, strongly preferring the same row/column.
+  // Left and right stay in the row: anything on the ring's own line that way wins, however far
+  // along it is (a song's title far to the left of its buttons), before nearer things above or
+  // below are considered.
   function pick(c, d, list) {
-    var scored = [], cx = (c.left + c.right) / 2, cy = (c.top + c.bottom) / 2;
+    var scored = [], inRow = [], side2 = d === 'left' || d === 'right', cx = (c.left + c.right) / 2, cy = (c.top + c.bottom) / 2;
     for (var i = 0; i < list.length; i++) {
       var o = list[i], r = o.r;
+      if (r.right <= 0 || r.bottom <= 0 || r.left >= innerWidth || r.top >= innerHeight) continue; // off screen
       if (cur && (o.el === cur || o.el.contains(cur) || cur.contains(o.el))) continue;
       var rx = (r.left + r.right) / 2, ry = (r.top + r.bottom) / 2, main, side;
       if (d === 'right') { if (rx <= cx + 1 || r.left <= c.left) continue; main = Math.max(0, r.left - c.right); side = gap(c.top, c.bottom, r.top, r.bottom); }
@@ -920,8 +937,12 @@
       else { if (ry >= cy - 1 || r.bottom >= c.bottom) continue; main = Math.max(0, c.top - r.bottom); side = gap(c.left, c.right, r.left, r.right); }
       var off = (d === 'left' || d === 'right') ? Math.abs(ry - cy) : Math.abs(rx - cx);
       scored.push({ el: o.el, s: main + side * 3 + off * 0.1 });
+      if (side2) { // on the same line: they overlap by at least half of the lower one's height
+        var over = Math.min(c.bottom, r.bottom) - Math.max(c.top, r.top);
+        if (over >= Math.min(c.bottom - c.top, r.bottom - r.top) * 0.5) inRow.push({ el: o.el, s: main + off * 0.1 });
+      }
     }
-    return firstUsable(scored);
+    return (inRow.length && firstUsable(inRow)) || firstUsable(scored);
   }
   function canScroll(sc, d) {
     if (d === 'down') return sc.scrollTop + sc.clientHeight < sc.scrollHeight - 1;
@@ -953,7 +974,32 @@
     ring.style.left = (r.left - 4) + 'px'; ring.style.top = (r.top - 4) + 'px';
     ring.style.width = (r.width + 8) + 'px'; ring.style.height = (r.height + 8) + 'px';
   }
-  addEventListener('scroll', function () { invalidate(); if (cur && ring) drawRing(); }, true);
+  // A scroll inside the page (Tidal's lists scroll in their own box): the kept positions of what's
+  // in that box move by the same amount. The whole page scrolling (fixed bars stay put) or a box
+  // not seen before: measured again.
+  var scrolled = new WeakMap();
+  function followScroll(sc) {
+    var was = scrolled.get(sc), now = { x: sc.scrollLeft, y: sc.scrollTop };
+    scrolled.set(sc, now);
+    if (!cache || !was || sc === document.scrollingElement || sc === document.documentElement || sc === document.body) { invalidate(); return; }
+    var dx = was.x - now.x, dy = was.y - now.y;
+    if (!dx && !dy) return;
+    // The kept items reach a screen beyond each edge: once the scrolling adds up to most of a
+    // screen, what's coming into view wasn't kept, so everything is measured again.
+    cacheShift.x += dx; cacheShift.y += dy;
+    if (Math.abs(cacheShift.x) > innerWidth * 0.8 || Math.abs(cacheShift.y) > innerHeight * 0.8) { invalidate(); return; }
+    for (var i = 0; i < cache.length; i++) {
+      var o = cache[i];
+      if (!sc.contains(o.el)) continue;
+      o.r.left += dx; o.r.right += dx; o.r.top += dy; o.r.bottom += dy;
+    }
+  }
+  function rememberScroll(sc) { if (sc && sc.nodeType === 1 && !scrolled.has(sc)) scrolled.set(sc, { x: sc.scrollLeft, y: sc.scrollTop }); }
+  addEventListener('scroll', function (e) {
+    var t = e.target && e.target.nodeType === 1 ? e.target : document.scrollingElement;
+    followScroll(t);
+    if (cur && ring) drawRing();
+  }, true);
   addEventListener('resize', function () { invalidate(); if (cur && ring) drawRing(); });
 
   // Keep the ring right when the page changes under it (Tidal swaps pages without reloading):
@@ -970,9 +1016,25 @@
   function schedule() {
     if (ringOn && !pending) pending = setTimeout(refresh, 120);
   }
+  // Only changes that can move or add buttons count: elements added or removed, something shown or
+  // hidden, a box's class or style changing. Not the ticking song time (text only), nor the progress
+  // bar and other plain shapes restyling (no buttons inside them), nor the ring's own redraws.
+  function matters(rec) {
+    var t = rec.target;
+    if (t === ring) return false;
+    if (rec.type === 'childList') {
+      var lists = [rec.addedNodes, rec.removedNodes];
+      for (var l = 0; l < 2; l++) for (var k = 0; k < lists[l].length; k++) if (lists[l][k].nodeType === 1) return true;
+      return false; // only text changed
+    }
+    if (rec.attributeName === 'class' || rec.attributeName === 'style') {
+      return t.nodeType === 1 && (t.matches(SEL) || !!t.querySelector(SEL));
+    }
+    return true; // hidden, aria-hidden, open
+  }
   var observer = new MutationObserver(function (records) {
     for (var i = 0; i < records.length; i++) {
-      if (records[i].target !== ring) { invalidate(); schedule(); return; } // ignore the ring's own redraws
+      if (matters(records[i])) { invalidate(); schedule(); return; }
     }
   });
   // Injected as the page starts loading, <html> may not exist yet: wait for it.
@@ -1010,6 +1072,7 @@
       var px = x || innerWidth / 2, py = y || innerHeight / 2, scored = [];
       for (var i = 0; i < list.length; i++) {
         var r = list[i].r, dx = gap(r.left, r.right, px, px), dy = gap(r.top, r.bottom, py, py);
+        if (r.right <= 0 || r.bottom <= 0 || r.left >= innerWidth || r.top >= innerHeight) continue;
         scored.push({ el: list[i].el, s: dx * dx + dy * dy });
       }
       var start = firstUsable(scored);
@@ -1025,8 +1088,9 @@
       var v = d === 'up' || d === 'down', sc = scroller(cur, v);
       if (canScroll(sc, d) && (!next || !sc.contains(next))) {
         var amt = (v ? sc.clientHeight : sc.clientWidth) * 0.6;
+        rememberScroll(sc);
         sc.scrollBy(v ? 0 : (d === 'left' ? -amt : amt), v ? (d === 'up' ? -amt : amt) : 0);
-        invalidate(); // the scroll event comes later; positions changed now
+        followScroll(sc); // the scroll event comes later; positions changed now
         return W.nav(d, 0, 0, true);
       }
     }
@@ -1641,6 +1705,18 @@
     p.appendChild(ss);
     showSleep();
 
+    if (!info.phone) { // TV: how wide Tidal's page is drawn (was Menu's hold; holding Menu now switches ring/pointer)
+      var sr = section('Display');
+      var pw = row('Page width', 'How wide Tidal\'s page is laid out: wider fits more on screen, narrower makes everything bigger.');
+      var pwSel = el('select', 'wv-sel');
+      [1280, 1440, 1600, 1920].forEach(function (w) { var op = el('option', '', w + ' px'); op.value = String(w); pwSel.appendChild(op); });
+      pwSel.value = String(info.pageWidth || 1440);
+      pwSel.onchange = function () { try { WaveApp.setSetting('pageWidth', Number(pwSel.value)); } catch (e) {} };
+      pw.appendChild(pwSel);
+      sr.appendChild(card([pw]));
+      p.appendChild(sr);
+    }
+
     var sc = section('Crash reports');
     var cr = row('Send crash reports automatically',
       'After a crash, the next time Wave opens it posts the details (app version, Android version, phone model and the error) ' +
@@ -1896,8 +1972,8 @@
     ['Text size (phone)', 'Tidal\'s whole page bigger or smaller together, and song rows that fit narrow screens.'],
     ['Swipes on the album art (phone)', 'Swipe left or right for the next or previous song, down to close the player; tap a song to play it.'],
     ['S Pen (phone)', 'Press the pen\'s button once to play or pause, twice for the next song.'],
-    ['Remote control (TV)', 'A highlight ring that jumps between buttons with the arrow keys, or a pointer, switched with Menu.'],
-    ['Page widths (TV)', 'Hold Menu to change how wide Tidal\'s page is drawn.']
+    ['Remote control (TV)', 'A highlight ring that jumps between buttons with the arrow keys, or a pointer (hold Menu to switch). Menu opens Settings.'],
+    ['Page widths (TV)', 'How wide Tidal\'s page is drawn: a setting in the Wave tab.']
   ];
   var featBox = null;
   function featuresTick(page, first) {
@@ -2547,6 +2623,71 @@
     if (!close) return false;
     close.click();
     return true;
+  };
+
+  // ---------- Menu (the remote): Tidal's Settings page ----------
+  // Opened inside Tidal's player, so the music plays on. With Tidal's own router command, as its
+  // profile menu's Settings sends it (seen with Wave Probe 9: router/PUSH, payload "/settings");
+  // should the address not change, through the browser's history, which a page's router follows. Never by loading the
+  // address: that would restart the player. The full-screen player is closed first, and the ring
+  // then goes to the Settings tabs. Already on Settings: the ring just goes back to its tabs.
+  var SETTINGS_PATH = '/settings', settingsPoll = 0, settingsAt = 0;
+  function onSettings() { return /^\/settings(\/|$)/.test(location.pathname); }
+  function settingsTab() { // the picked tab (Tidal marks it with an "active" class), else the first
+    var tabs = document.querySelectorAll('[data-test^="settings-tab--"]');
+    for (var i = 0; i < tabs.length; i++) if (/_active_/.test(tabs[i].className)) return tabs[i];
+    return tabs[0] || null;
+  }
+  // Waits for the Settings page to show (its tabs), then puts the ring on the picked tab.
+  function ringToSettings(failed) {
+    clearInterval(settingsPoll);
+    var tries = 0;
+    settingsPoll = setInterval(function () {
+      var tab = onSettings() ? settingsTab() : null;
+      if (tab && rectOf(tab)) {
+        clearInterval(settingsPoll);
+        if (ringOn && usable(tab)) {
+          select(tab);
+          try { WaveApp.ringMoved(point()); } catch (e) {}
+        }
+      } else if (++tries > 53) { // 8 s
+        clearInterval(settingsPoll);
+        if (failed) failed();
+      }
+    }, 150);
+  }
+  // A new entry in the browser's history plus the event a router listens for (as Back/Forward
+  // send it). The entry keeps the shape of the router's own (its index one further along).
+  function pushByHistory(path) {
+    try {
+      var st = history.state, ns = st && typeof st === 'object' ? Object.assign({}, st) : null;
+      if (ns) {
+        delete ns.usr; delete ns.state; // the last page's own data doesn't come along
+        if (typeof ns.idx === 'number') ns.idx++;
+        if (typeof ns.key === 'string') ns.key = 'wave' + Date.now().toString(36);
+      }
+      history.pushState(ns, '', path);
+      dispatchEvent(new PopStateEvent('popstate', { state: ns }));
+      return true;
+    } catch (e) { return false; }
+  }
+  W.openSettings = function () {
+    if (onSettings()) { ringToSettings(); return; }
+    var now = Date.now();
+    if (now - settingsAt < 1500) return; // a second press while it's opening
+    settingsAt = now;
+    try { fairAttach(); } catch (e) {}
+    try { W.back(); } catch (e) {} // the full-screen player, if it's open
+    try {
+      if (fairStore) fairStore.dispatch({ type: 'router/PUSH', payload: SETTINGS_PATH });
+    } catch (e) {}
+    setTimeout(function () {
+      var byHistory = !onSettings() && pushByHistory(SETTINGS_PATH);
+      ringToSettings(function () { // no Settings page after 8 s
+        if (byHistory && onSettings()) { try { history.back(); } catch (e) {} } // take the entry back out
+        note('Couldn\'t open Settings with the remote\'s Menu button. It\'s also in the profile menu (top right).');
+      });
+    }, 600);
   };
 
   // Signed out: straight to Tidal's login page, by Tidal's own "Log in / Create a free account"

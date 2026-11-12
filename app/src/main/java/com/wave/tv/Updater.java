@@ -176,7 +176,7 @@ final class Updater {
                     apk.delete();
                     main.post(() -> {
                         busy = false;
-                        android.widget.Toast.makeText(activity, "Update verification failed", android.widget.Toast.LENGTH_LONG).show();
+                        if (activity instanceof MainActivity) ((MainActivity) activity).say("Update verification failed", true);
                         if (attempt < 2) {
                             install(l, attempt + 1); // once more, by itself
                         } else {

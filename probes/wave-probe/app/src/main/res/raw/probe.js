@@ -44,7 +44,13 @@
         if (a && typeof a.type === 'string') {
           P.actions.push(a.type.slice(0, 80));
           if (P.actions.length > 200) P.actions.shift();
-          if (PLAYER.test(a.type)) { // player actions in detail: the shape of what they carry, no values
+          if (/^router\//.test(a.type)) { // Probe 9: page changes in full, addresses with ids masked
+            var ra = {};
+            for (var rk in a) if (rk !== 'type') ra[rk] = a[rk];
+            P.player.push(new Date().toTimeString().slice(0, 8) + '  ' + a.type.slice(0, 80) + '  ' + route(ra, 0) +
+              '  | history.state: ' + route(history.state, 0) + ', history length ' + history.length);
+            if (P.player.length > 60) P.player.shift();
+          } else if (PLAYER.test(a.type)) { // player actions in detail: the shape of what they carry, no values
             var rest = {};
             for (var k in a) if (k !== 'type') rest[k] = a[k];
             P.player.push(new Date().toTimeString().slice(0, 8) + '  ' + a.type.slice(0, 80) + '  ' +
@@ -80,6 +86,20 @@
   }, true);
 
   // Layout of a value: names and types; values only for on/off, numbers and short CODES.
+  // Page-change commands: field names and values, with ids in addresses masked and other text as
+  // its length (no names or search words).
+  function route(v, depth) {
+    if (v === null || v === undefined) return String(v);
+    var t = typeof v;
+    if (t === 'boolean' || t === 'number') return String(v);
+    if (t === 'string') return /^\/[\w\-\/:.]*$/.test(v) ? '"' + v.replace(/[0-9a-f]{8}-[0-9a-f-]{27,}|\d{3,}/gi, ':id').slice(0, 60) + '"' :
+      /^[A-Z_]{1,24}$/.test(v) ? '"' + v + '"' : 'str(' + v.length + ')';
+    if (t === 'function') return 'fn';
+    if (depth >= 5) return Array.isArray(v) ? '[' + v.length + ']' : '{...}';
+    if (Array.isArray(v)) return '[' + v.length + (v.length ? ': ' + route(v[0], depth + 1) : '') + ']';
+    var ks = Object.keys(v);
+    return '{' + ks.slice(0, 30).map(function (k) { return k + ': ' + route(v[k], depth + 1); }).join(', ') + '}';
+  }
   function secret(v, depth) {
     if (v === null || v === undefined) return String(v);
     var t = typeof v;

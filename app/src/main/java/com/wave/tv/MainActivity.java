@@ -26,7 +26,6 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.graphics.Bitmap;
 import android.widget.FrameLayout;
-import android.widget.Toast;
 
 /**
  * Wave: a minimal TV browser for Tidal's web player.
@@ -60,7 +59,7 @@ public final class MainActivity extends Activity {
     private int widthIndex;
     /** Highlight mode: the D-pad moves a ring between clickable items. Otherwise it moves a pointer. */
     private boolean ringMode;
-    private boolean menuLongPress, okDownSent, okUpPending;
+    private boolean menuDown, menuLongPress, okDownSent, okUpPending;
     private String bridgeJs;
     private boolean playing, serviceOn, visible;
     private String title = "", artist = "";
@@ -305,14 +304,7 @@ public final class MainActivity extends Activity {
                 if (down) wheel(0, -6);
                 return true;
             case KeyEvent.KEYCODE_MENU:
-                // Press: switch highlight/pointer mode. Hold: change page width.
-                if (down && e.getRepeatCount() == 1) {
-                    menuLongPress = true;
-                    cycleViewport();
-                } else if (!down) {
-                    if (!menuLongPress) toggleMode();
-                    menuLongPress = false;
-                }
+                menuKey(down, e.getRepeatCount());
                 return true;
             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
             case KeyEvent.KEYCODE_HEADSETHOOK:
@@ -335,6 +327,12 @@ public final class MainActivity extends Activity {
             case KeyEvent.KEYCODE_MEDIA_REWIND:
             case KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD:
             case KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD:
+                // Test builds of Wave for TV: Previous stands in for Menu, for trying Menu on a
+                // remote without one. Released builds: Previous is the previous song, as always.
+                if (BuildConfig.TV && BuildConfig.BETA) {
+                    menuKey(down, e.getRepeatCount());
+                    return true;
+                }
                 if (down && e.getRepeatCount() == 0) command("prev");
                 return true;
             case KeyEvent.KEYCODE_BACK:
@@ -393,13 +391,20 @@ public final class MainActivity extends Activity {
 
     /** Ask the page to move the ring; it answers with the new item's centre ("x,y,viewportWidth"). */
     private boolean ringBusy;
+    /** Presses made while the page is still moving the ring: done in turn, at most this many waiting. */
+    private static final int RING_QUEUE_MAX = 2;
+    private final java.util.ArrayDeque<String> ringQueue = new java.util.ArrayDeque<>();
 
     private void moveRing(String dir) {
-        if (ringBusy) return; // previous move still running in the page: drop this press
+        if (ringBusy) { // previous move still running in the page: wait for it (a few presses at most)
+            if (ringQueue.size() < RING_QUEUE_MAX) ringQueue.add(dir);
+            return;
+        }
         ringBusy = true;
         web.evaluateJavascript("window.__wave?__wave.nav('" + dir + "'," + cssX() + "," + cssY() + "):''",
                 res -> {
                     ringBusy = false;
+                    if (!ringQueue.isEmpty()) handler.post(() -> { if (!ringBusy && !ringQueue.isEmpty()) moveRing(ringQueue.poll()); });
                     String v = res == null ? "" : res.replace("\"", "");
                     if (v.endsWith(",tap")) { // a slider: tap it where the new value is
                         if (onRingPoint(v.substring(0, v.length() - 4))) {
@@ -440,6 +445,7 @@ public final class MainActivity extends Activity {
     /** OK in highlight mode: real touch down/up on the ringed item (fresh position, in case it moved). */
     private void ringClick(boolean down, int repeat) {
         if (down && repeat == 0) {
+            ringQueue.clear(); // OK presses what the ring shows now: moves still waiting are dropped
             okDownSent = false;
             okUpPending = false;
             web.evaluateJavascript("window.__wave?__wave.target():''", res -> {
@@ -466,7 +472,70 @@ public final class MainActivity extends Activity {
         }
     }
 
+    /**
+     * Menu. Press: Tidal's Settings page (Wave's tabs are there too), opened inside the page so
+     * the music plays on. Hold: switch between the highlight ring and the pointer. (The page width
+     * is a setting in the Wave tab.)
+     */
+    private void menuKey(boolean down, int repeat) {
+        if (down && repeat == 0) {
+            menuDown = true;
+        } else if (down && repeat == 1 && menuDown) {
+            menuLongPress = true;
+            toggleMode(); // hold: highlight ring <-> pointer
+        } else if (!down) {
+            if (menuDown && !menuLongPress) {
+                web.evaluateJavascript("window.__wave&&__wave.openSettings&&__wave.openSettings()", null);
+            }
+            menuDown = menuLongPress = false;
+        }
+    }
+
+    // ---------- Wave's own short messages ----------
+    // Drawn by Wave over the page (with its wave mark), not Android's toasts: those add the app's
+    // icon themselves, and some TVs show a stock icon there instead of Wave's.
+    private android.widget.TextView sayView;
+    private final Runnable sayHide = () -> {
+        if (sayView != null) sayView.animate().alpha(0f).setDuration(250).withEndAction(() -> sayView.setVisibility(View.GONE));
+    };
+
+    void say(String msg, boolean longer) {
+        if (msg == null || root == null) return;
+        if (sayView == null) {
+            sayView = new android.widget.TextView(this);
+            sayView.setTextColor(0xFFFFFFFF);
+            sayView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
+            sayView.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            int h = Math.round(16 * density), v = Math.round(10 * density);
+            sayView.setPadding(h, v, h + Math.round(4 * density), v);
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setColor(0xF018181B);
+            bg.setCornerRadius(24 * density);
+            bg.setStroke(Math.max(1, Math.round(density)), 0x33FFFFFF);
+            sayView.setBackground(bg);
+            android.graphics.drawable.Drawable mark = getDrawable(R.drawable.ic_fg); // the wave
+            if (mark != null) {
+                int size = Math.round(28 * density);
+                mark.setBounds(0, 0, size, size);
+                sayView.setCompoundDrawables(mark, null, null, null);
+                sayView.setCompoundDrawablePadding(Math.round(6 * density));
+            }
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, -2, android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL);
+            lp.bottomMargin = Math.round(72 * density);
+            lp.leftMargin = lp.rightMargin = Math.round(24 * density);
+            root.addView(sayView, lp); // on top of everything
+        }
+        handler.removeCallbacks(sayHide);
+        sayView.animate().cancel();
+        sayView.setText(msg);
+        sayView.setAlpha(1f);
+        sayView.setVisibility(View.VISIBLE);
+        sayView.bringToFront();
+        handler.postDelayed(sayHide, longer ? 4500 : 2500);
+    }
+
     private void toggleMode() {
+        ringQueue.clear();
         ringMode = !ringMode;
         prefs.edit().putBoolean("ring", ringMode).apply();
         if (ringMode) {
@@ -477,14 +546,7 @@ public final class MainActivity extends Activity {
             web.evaluateJavascript("window.__wave&&__wave.ringOff()", null);
             pokeCursor();
         }
-        Toast.makeText(this, ringMode ? "Highlight mode" : "Pointer mode", Toast.LENGTH_SHORT).show();
-    }
-
-    private void cycleViewport() {
-        widthIndex = (widthIndex + 1) % VIEWPORT_WIDTHS.length;
-        prefs.edit().putInt("width", widthIndex).apply();
-        applyViewport();
-        Toast.makeText(this, "Page width " + VIEWPORT_WIDTHS[widthIndex] + "px", Toast.LENGTH_SHORT).show();
+        say(ringMode ? "Highlight mode" : "Pointer mode", false);
     }
 
     private void pokeCursor() {
@@ -857,6 +919,7 @@ public final class MainActivity extends Activity {
                         .put("textSize", prefs.getInt("pageScale", 100))
                         .put("textSizeMax", maxPageScale())
                         .put("phone", !BuildConfig.TV)
+                        .put("pageWidth", VIEWPORT_WIDTHS[widthIndex])
                         .put("beta", BuildConfig.BETA)
                         .put("crashRelay", CrashReports.available()).toString();
             } catch (org.json.JSONException e) {
@@ -913,6 +976,17 @@ public final class MainActivity extends Activity {
                 case "vizColor": e.putInt(key, value & 0xFFFFFF); break;
                 case "textSize": e.putInt("pageScale", Math.max(80, Math.min(130, value))); break;
                 case "qualitySize": e.putInt(key, Math.max(6, Math.min(24, value))); break; // sp (developer options)
+                case "pageWidth": // TV: how wide Tidal's page is drawn (the Wave tab)
+                    handler.post(() -> {
+                        for (int i = 0; i < VIEWPORT_WIDTHS.length; i++) {
+                            if (VIEWPORT_WIDTHS[i] == value && widthIndex != i) {
+                                widthIndex = i;
+                                prefs.edit().putInt("width", i).apply();
+                                applyViewport();
+                            }
+                        }
+                    });
+                    return;
                 default: return;
             }
             e.apply();
@@ -1008,7 +1082,7 @@ public final class MainActivity extends Activity {
                 try {
                     startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
                 } catch (RuntimeException e) {
-                    Toast.makeText(MainActivity.this, url, Toast.LENGTH_LONG).show();
+                    say(url, true);
                 }
             });
         }
@@ -1025,7 +1099,7 @@ public final class MainActivity extends Activity {
         /** Short on-screen message from the page (fair shuffle status). */
         @JavascriptInterface
         public void note(String msg) {
-            if (msg != null && visible) handler.post(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
+            if (msg != null && visible) handler.post(() -> say(msg, msg.length() > 60));
         }
     }
 
@@ -1235,6 +1309,10 @@ public final class MainActivity extends Activity {
             FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(qw, -2);
             lp.leftMargin = l + (w - qw) / 2;
             lp.topMargin = bottom + labels; // the padding keeps the text where it was
+            // TV: centred in the space between the frequency numbers and the player's controls.
+            int ctlTop = p.length > 7 ? Math.round(Float.parseFloat(p[7]) * scale) : 0;
+            int qh = qualityView.getMeasuredHeight(), space = ctlTop - (bottom + labels);
+            if (BuildConfig.TV && ctlTop > 0 && space > 0) lp.topMargin = bottom + labels + (space - qh) / 2;
             qualityView.setLayoutParams(lp);
         } catch (NumberFormatException e) {
             return;
@@ -1458,7 +1536,7 @@ public final class MainActivity extends Activity {
             CrashReports.send(report, ok -> runOnUiThread(() -> {
                 if (!ok) return;
                 f.delete();
-                Toast.makeText(this, "Wave stopped last time: the crash report was sent", Toast.LENGTH_SHORT).show();
+                say("Wave stopped last time: the crash report was sent", false);
             }));
             return;
         }

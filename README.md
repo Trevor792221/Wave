@@ -29,12 +29,12 @@ What Wave adds to Tidal's web player (also listed in the app: Settings → About
 - **Text size** (phone): Tidal's whole page bigger or smaller together, and song rows that fit narrow screens.
 - **Swipes on the album art** (phone): swipe left or right for the next or previous song, down to close the player; tap a song to play it.
 - **S Pen** (phone): press the pen's button once to play or pause, twice for the next song.
-- **Remote control** (TV): a highlight ring that jumps between buttons with the arrow keys, or a pointer, switched with Menu.
-- **Page widths** (TV): hold Menu to change how wide Tidal's page is drawn.
+- **Remote control** (TV): a highlight ring that jumps between buttons with the arrow keys, or a pointer (hold Menu to switch). Menu opens Settings.
+- **Page widths** (TV): how wide Tidal's page is drawn, a setting in the Wave tab (Display).
 
 ## Remote controls
 
-Wave has two ways to get around, switched with **Menu**:
+Wave has two ways to get around, switched by holding **Menu**:
 
 - **Highlight mode** (default): a ring jumps between buttons, links and other clickable things. It takes the colour of the song's cover.
 - **Pointer mode**: an on-screen pointer, for things like dragging the seek bar.
@@ -43,13 +43,13 @@ Wave has two ways to get around, switched with **Menu**:
 |---|---|---|
 | D-pad | Move the ring to the nearest item that way (holding counts as one press) | Move the pointer (hold to speed up; push past an edge to scroll) |
 | OK | Click the highlighted item | Click (hold for long-press) |
-| Menu (press) | Switch to pointer mode | Switch to highlight mode |
-| Menu (hold) | Cycle page width (1280 / 1440 / 1600 / 1920 px) | Same |
+| Menu (press) | Open Tidal's Settings, where Wave's tabs are too (the music plays on); the ring goes to the Settings tabs | Open Settings |
+| Menu (hold) | Switch to pointer mode | Switch to highlight mode |
 | Back | Go back a page; exits on the first page | Same |
 | Channel ▲▼ / Page ▲▼ | Scroll faster | Same |
 | Play/Pause, Next, Previous | Control playback, also while Wave is in the background | Same |
 
-Fast-forward and rewind buttons act as Next and Previous. In a scrolling list the ring scrolls the list before moving on, and it follows the page when Tidal opens a new one.
+Fast-forward and rewind buttons act as Next and Previous. In Wave Beta test builds for TV, the Previous button stands in for Menu (for trying Menu on a remote without one), so it doesn't go to the previous song there. In a scrolling list the ring scrolls the list before moving on, and it follows the page when Tidal opens a new one.
 
 Clicking anywhere on a song in a list (its number, cover, title or artist) plays it; the **...** menu works as usual.
 
