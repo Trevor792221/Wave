@@ -131,6 +131,8 @@
 | `129-wave-beta-2.1.1-menu-hold-pointer.apk` | Nov 12 | TV: holding Menu (Previous in Wave Beta) switches between the ring and the pointer; page width is a setting in the Wave tab (Display) |
 | `130-wave-mobile-beta-1.1.9-bottom-tabs.apk` | Nov 12 | Phone: Tidal's bottom tabs work again (tapping the player bar opened the player for them too); the bar's song row still opens the player |
 | `131-wave-beta-2.1.1-quality-centred.apk` | Nov 12 | TV: the quality line is centred between the cover's frequency numbers and the player's controls (it touched the controls) |
+| `132-wave-beta-2.1.2-peak-red-bar.apk` | Nov 12 | TV: Digital PEAK meter: only the last bar is red, lit only above 0 dBFS (the bars before it cover −40 to 0) |
+| `133-wave-mobile-beta-1.2.0-peak-red-bar.apk` | Nov 12 | Phone: the same Digital PEAK meter change |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
