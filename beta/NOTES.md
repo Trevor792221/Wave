@@ -124,6 +124,7 @@
 | `122-wave-beta-2.1.0-tv-defaults-probed.apk` | Nov 11 | TV: Uploads hidden and Collection pinned with Tidal's exact commands (seen with Wave Probe 8: SET_HIDE_UPLOAD_TAB, SET_PIN_COLLECTION_TO_SIDEBAR) |
 | `123-wave-beta-2.1.1-faster-ring.apk` | Nov 12 | TV: faster ring (positions kept until something that matters changes, moved along when a list scrolls), presses queued (2 at most) instead of dropped |
 | `124-wave-beta-2.1.1-no-volume-ring.apk` | Nov 12 | TV: the volume button is really gone in the full-screen player (the ring could still land on the hidden one); the ring skips invisible items |
+| `125-wave-beta-2.1.1-stay-in-row.apk` | Nov 12 | TV: left and right stay on the ring's own line, however far the next item is (no jumping up or down to something nearer) |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
