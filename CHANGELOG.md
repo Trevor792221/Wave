@@ -5,6 +5,7 @@ Every test build and probe on this branch, newest first, with what changed in it
 ## Nov 12
 
 - **Probe 11** · Wave Probe 9 · [`11-wave-probe-9.apk`](probes/11-wave-probe-9.apk): Records Tidal's page-change commands (router/…) in full, with ids in addresses masked, and the browser history's entry, for opening Settings with Menu
+- **Test 130** · Wave Mobile Beta 1.1.9 · [`130-wave-mobile-beta-1.1.9-bottom-tabs.apk`](beta/130-wave-mobile-beta-1.1.9-bottom-tabs.apk): Phone: Tidal's bottom tabs work again (tapping the player bar opened the player for them too); the bar's song row still opens the player
 - **Test 129** · Wave for TV Beta 2.1.1 · [`129-wave-beta-2.1.1-menu-hold-pointer.apk`](beta/129-wave-beta-2.1.1-menu-hold-pointer.apk): TV: holding Menu (Previous in Wave Beta) switches between the ring and the pointer; page width is a setting in the Wave tab (Display)
 - **Test 128** · Wave for TV Beta 2.1.1 · [`128-wave-beta-2.1.1-own-messages.apk`](beta/128-wave-beta-2.1.1-own-messages.apk): Wave draws its own short messages (with the wave mark) instead of Android's toasts, which showed a stock icon on the TV
 - **Test 127** · Wave for TV Beta 2.1.1 · [`127-wave-beta-2.1.1-menu-settings-probed.apk`](beta/127-wave-beta-2.1.1-menu-settings-probed.apk): TV: Menu (Previous in Wave Beta) opens Settings with Tidal's exact command (seen with Wave Probe 9: router/PUSH "/settings")
