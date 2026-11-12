@@ -2,6 +2,10 @@
 
 Every test build and probe on this branch, newest first, with what changed in it. The files are in [`beta/`](beta) and [`probes/`](probes); released versions are on the [releases page](https://github.com/Trevor792221/Wave/releases). A test build's version is the one it was built on: its changes come out in the next release.
 
+## Nov 12
+
+- **Test 123** · Wave for TV Beta 2.1.1 · [`123-wave-beta-2.1.1-faster-ring.apk`](beta/123-wave-beta-2.1.1-faster-ring.apk): TV: faster ring (positions kept until something that matters changes, moved along when a list scrolls), presses queued (2 at most) instead of dropped
+
 ## Nov 11
 
 - **Probe 10** · Wave Probe 8 · [`10-wave-probe-8.apk`](probes/10-wave-probe-8.apk): Records Tidal's sign-in state (auth, session, user: their shape only, no names, ids or tokens), for opening the login page when signed out
