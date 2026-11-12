@@ -1716,6 +1716,13 @@
     renderRounds();
 
     // Sleep timer: the app pauses the music after the chosen time (also in the background).
+    // Fun facts: a Wikipedia fact about the song on the album art.
+    var sf = section('Fun facts');
+    var ff = row('Fun facts', 'A fact about the song from Wikipedia, on the album art 10 seconds in. Sends the song\'s title and artist to Wikipedia to look it up.');
+    ff.appendChild(toggle(info.funFacts !== false, function (v) { try { WaveApp.setSetting('funFacts', v ? 1 : 0); } catch (e) {} if (!v) { fact = null; hideFact(); } }));
+    sf.appendChild(card([ff]));
+    p.appendChild(sf);
+
     var ss = section('Sleep timer');
     var sleep = row('Sleep timer', ''), sleepSel = el('select', 'wv-sel');
     var sleepTimes = [[0, 'Off']]; // 30 min to 4 hours, every 30 min
@@ -1998,6 +2005,7 @@
     ['Fair shuffle', 'With shuffle on, no song repeats until every song in the list has played (a song counts after 10 seconds of playing). Hold the shuffle button to switch it; the Wave tab shows how many have played this round, with a reset.'],
     ['Soft pause', 'Pausing fades the music out and playing fades it back in, with no click.'],
     ['Back where you left off', 'Wave opens on the song you were playing, at the same spot.'],
+    ['Fun facts', 'A fact about the song from Wikipedia on the album art, 10 seconds in (a switch in the Wave tab).'],
     ['Sleep timer', 'Pauses the music after 30 minutes to 4 hours, also with Wave in the background.'],
     ['Audio quality for Wi-Fi and mobile data (phone)', 'A quality for each, switched by itself when the phone changes networks.'],
     ['Satellite data (phone)', 'Plays over T-Mobile\'s T-Satellite and other satellite data, with Tidal\'s adaptive streaming on.'],
@@ -2665,6 +2673,68 @@
     close.click();
     return true;
   };
+
+  // ---------- Fun facts: a card on the album art ----------
+  // The app looks the song up on Wikipedia (Fun facts on, in the Wave tab) and hands the fact over
+  // here. It shows at the bottom right of the full-screen player's cover once the song has played
+  // 10 s, for 12 s, then fades out; once per song. Opening the player later in the song still shows
+  // it (not in its last 15 s). Phones: a tap closes it. TV: the ring never lands on it.
+  var fact = null, factCard = null, FACT_AFTER = 10, FACT_FOR = 12000;
+  W.fact = function (key, text, article) { fact = { key: key, text: text, article: article, at: 0, done: false }; };
+  function songKey() { try { var n = nowPlaying(); return n.title + '|' + n.artist; } catch (e) { return ''; } }
+  function hideFact(now) {
+    if (!factCard) return;
+    var c = factCard;
+    factCard = null;
+    c.style.opacity = '0';
+    setTimeout(function () { if (c.parentNode) c.parentNode.removeChild(c); }, now ? 0 : 450);
+  }
+  function factTick() {
+    if (!fact || fact.done) { if (factCard && (!fact || fact.done)) hideFact(); return; }
+    if (songKey() !== fact.key) { fact.done = true; hideFact(true); return; } // another song now
+    var art = vizCover(), pos = 0, dur = 0, playing = false;
+    try {
+      var pc = fairStore.getState().playbackControls;
+      playing = pc.playbackState === 'PLAYING';
+      pos = pc.latestCurrentTime || 0;
+    } catch (e) {}
+    var me = media();
+    if (me) { if (!pos) pos = me.currentTime || 0; dur = isFinite(me.duration) ? me.duration : 0; if (!playing) playing = !me.paused; }
+    var now = Date.now();
+    if (fact.at && now - fact.at > FACT_FOR) { fact.done = true; hideFact(); return; }
+    if (!art) { if (factCard) hideFact(true); return; } // the player closed: back if it opens again in time
+    if (!fact.at) {
+      if (!playing || pos < FACT_AFTER || (dur && dur - pos < 15)) return;
+      fact.at = now;
+    }
+    if (!factCard || !factCard.isConnected || factCard.parentNode !== art.parentElement) {
+      if (factCard && factCard.parentNode) factCard.parentNode.removeChild(factCard);
+      var c = factCard = document.createElement('div');
+      c.setAttribute('data-wave', 'fact');
+      c.style.cssText = 'position:absolute;z-index:3;box-sizing:border-box;border-radius:12px;padding:10px 12px 8px;' +
+        'background:rgba(10,10,12,.86);color:#fff;font:500 12.5px/1.4 sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.45);' +
+        'opacity:0;transition:opacity .45s;' + (W.phone ? 'pointer-events:auto' : 'pointer-events:none');
+      var h = document.createElement('div'), t = document.createElement('div'), src = document.createElement('div');
+      h.textContent = 'Did you know?';
+      h.style.cssText = 'font-weight:700;font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:4px';
+      t.textContent = fact.text;
+      src.textContent = 'Wikipedia: ' + fact.article;
+      src.style.cssText = 'margin-top:6px;font-size:10px;opacity:.55';
+      c.appendChild(h); c.appendChild(t); c.appendChild(src);
+      if (W.phone) c.addEventListener('click', function (e) { e.stopPropagation(); e.preventDefault(); fact.done = true; hideFact(); }, true);
+      art.parentElement.insertBefore(c, art.nextSibling);
+      setTimeout(function () { if (factCard === c) c.style.opacity = '1'; }, 30);
+    }
+    // At the cover's bottom right, a little in from its edges, at most 70% of its width.
+    var cw = art.offsetWidth, ch = art.offsetHeight, m = Math.max(8, cw * 0.035), col = (VZ && VZ.color && vizColor('cover')) || '#33C3F0';
+    factCard.style.maxWidth = Math.min(cw * 0.7, 340) + 'px';
+    factCard.style.borderLeft = '3px solid ' + col;
+    factCard.querySelector('div').style.color = col;
+    factCard.style.left = (art.offsetLeft + cw - factCard.offsetWidth - m) + 'px';
+    factCard.style.top = (art.offsetTop + ch - factCard.offsetHeight - m) + 'px';
+    factCard.style.transform = art.style.transform || '';
+  }
+  setInterval(factTick, 500);
 
   // ---------- Menu (the remote): Tidal's Settings page ----------
   // Opened inside Tidal's player, so the music plays on. With Tidal's own router command, as its

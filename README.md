@@ -19,6 +19,7 @@ What Wave adds to Tidal's web player (also listed in the app: Settings → About
 - **Fair shuffle**: with shuffle on, no song repeats until every song in the list has played (a song counts once it has played for 10 seconds, so skipped songs stay in the round). Hold the shuffle button to switch it; the Wave tab shows how many have played this round, with a reset.
 - **Soft pause**: pausing fades the music out and playing fades it back in, with no click.
 - **Back where you left off**: Wave opens on the song you were playing, at the same spot.
+- **Fun facts** (on to start; Wave tab): a fact about the song from Wikipedia in a card on the album art, 10 seconds in. It sends each song's title and artist to Wikipedia; switch it off in the Wave tab to stop that.
 - **Sleep timer**: pauses the music after 30 minutes to 4 hours, also with Wave in the background.
 - **Audio quality for Wi-Fi and mobile data** (phone): a quality for each, switched by itself when the phone changes networks.
 - **Satellite data** (phone): plays over T-Mobile's T-Satellite and other satellite data, with Tidal's adaptive streaming on.

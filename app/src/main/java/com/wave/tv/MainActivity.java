@@ -793,6 +793,7 @@ public final class MainActivity extends Activity {
         artUrl = art;
         durationMs = durMs;
         if (trackChanged) publishMetadata(t, a, art);
+        if (trackChanged) lookUpFact(t, a);
         publishSessionState();
         barAnalyzer.update(); // runs only while playing
 
@@ -856,6 +857,17 @@ public final class MainActivity extends Activity {
         }).start();
     }
 
+    /** Fun facts (the Wave tab, off to start): a Wikipedia fact for the new song, for the page's card. */
+    private void lookUpFact(String t, String a) {
+        if (!prefs.getBoolean("funFacts", true) || t == null || t.isEmpty()) return;
+        String key = t + "|" + a;
+        FunFacts.find(t, a, (text, article) -> handler.post(() -> {
+            if (text == null || web == null) return;
+            web.evaluateJavascript("window.__wave&&__wave.fact&&__wave.fact(" + org.json.JSONObject.quote(key) + ","
+                    + org.json.JSONObject.quote(text) + "," + org.json.JSONObject.quote(article) + ")", null);
+        }));
+    }
+
     private void startPlaybackService() {
         Intent i = new Intent(this, PlaybackService.class); // it reads the song from WaveSession
         try {
@@ -904,6 +916,7 @@ public final class MainActivity extends Activity {
                 return new org.json.JSONObject().put("name", Updater.appName()).put("version", BuildConfig.VERSION_NAME + (BuildConfig.TEST_BUILD > 0 ? " (" + Updater.testName(BuildConfig.TEST_BUILD) + ")" : ""))
                         .put("auto", prefs.getBoolean("autoUpdate", !BuildConfig.BETA))
                         .put("crashAuto", prefs.getBoolean("crashAuto", false))
+                        .put("funFacts", prefs.getBoolean("funFacts", true))
                         .put("analyzerOpacity", prefs.getInt("analyzerOpacity", 30))
                         .put("analyzerOn", prefs.getBoolean("analyzerOn", true))
                         .put("labelsOn", prefs.getBoolean("labelsOn", true))
@@ -970,7 +983,7 @@ public final class MainActivity extends Activity {
         public void setSetting(String key, int value) {
             SharedPreferences.Editor e = prefs.edit();
             switch (key == null ? "" : key) {
-                case "analyzerOn": case "labelsOn": case "vuOn": case "vuMatch": case "miniMeters": case "vizAdaptive": case "anaAdaptive": case "prevAsMenu": e.putBoolean(key, value != 0); break;
+                case "analyzerOn": case "labelsOn": case "vuOn": case "vuMatch": case "miniMeters": case "vizAdaptive": case "anaAdaptive": case "prevAsMenu": case "funFacts": e.putBoolean(key, value != 0); break;
                 case "vuOpacity": e.putInt(key, Math.max(0, Math.min(100, value))); break;
                 case "vuStyle": e.putInt(key, value == 1 || value == 2 ? value : 0); break;
                 case "vizColor": e.putInt(key, value & 0xFFFFFF); break;
@@ -997,6 +1010,7 @@ public final class MainActivity extends Activity {
                 coverAnalyzer.enabled = prefs.getBoolean("analyzerOn", true);
                 updateSpectrum();
                 if ("textSize".equals(key)) applyViewport();
+                if ("funFacts".equals(key) && value != 0 && title != null) lookUpFact(title, artist); // the song that's on
                 if ("qualitySize".equals(key) && qualityView != null) {
                     qualityView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, prefs.getInt("qualitySize", QUALITY_SIZE));
                     placeQuality();
