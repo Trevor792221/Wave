@@ -5,6 +5,8 @@ Every test build and probe on this branch, newest first, with what changed in it
 ## Nov 12
 
 - **Probe 11** · Wave Probe 9 · [`11-wave-probe-9.apk`](probes/11-wave-probe-9.apk): Records Tidal's page-change commands (router/…) in full, with ids in addresses masked, and the browser history's entry, for opening Settings with Menu
+- **Test 140** · Wave Mobile Beta 1.2.1 · [`140-wave-mobile-beta-1.2.1-check-on-download-2.apk`](beta/140-wave-mobile-beta-1.2.1-check-on-download-2.apk): Same as 139, to try it: from 139, Check now downloads and checks this one
+- **Test 139** · Wave Mobile Beta 1.2.1 · [`139-wave-mobile-beta-1.2.1-check-on-download.apk`](beta/139-wave-mobile-beta-1.2.1-check-on-download.apk): Updates: Check now downloads the update and runs the safety check straight away ("Safety check passed"), then offers Install, which opens Android's prompt at once
 - **Test 138** · Wave Mobile Beta 1.2.1 · [`138-wave-mobile-beta-1.2.1-safety-check-2.apk`](beta/138-wave-mobile-beta-1.2.1-safety-check-2.apk): Same as 136, to try the "Safety check passed" message: from 136, Check now installs this one
 - **Test 137** · Wave for TV Beta 2.1.3 · [`137-wave-beta-2.1.3-safety-check.apk`](beta/137-wave-beta-2.1.3-safety-check.apk): TV: the same "Safety check passed" message
 - **Test 136** · Wave Mobile Beta 1.2.1 · [`136-wave-mobile-beta-1.2.1-safety-check.apk`](beta/136-wave-mobile-beta-1.2.1-safety-check.apk): Updates: "Safety check passed" shows once Wave has checked the download (its app id and key), before Android's installer
