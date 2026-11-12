@@ -5,6 +5,7 @@ Every test build and probe on this branch, newest first, with what changed in it
 ## Nov 12
 
 - **Probe 11** · Wave Probe 9 · [`11-wave-probe-9.apk`](probes/11-wave-probe-9.apk): Records Tidal's page-change commands (router/…) in full, with ids in addresses masked, and the browser history's entry, for opening Settings with Menu
+- **Test 142** · Wave for TV Beta 2.1.3 · [`142-wave-beta-2.1.3-version-ring.apk`](beta/142-wave-beta-2.1.3-version-ring.apk): TV: the highlight ring can land on the version in the Updates tab, so pressing OK 5 times there opens Developer options
 - **Test 141** · Wave for TV Beta 2.1.3 · [`141-wave-beta-2.1.3-prev-as-menu-option.apk`](beta/141-wave-beta-2.1.3-prev-as-menu-option.apk): TV: Pointer mode back in the Wave tab (holding Menu still switches); developer options: Page width, and "Previous button acts as Menu" (off by default, all builds; Wave Beta no longer does it by itself); fair shuffle 10 s; safety check right after the download
 - **Test 140** · Wave Mobile Beta 1.2.1 · [`140-wave-mobile-beta-1.2.1-check-on-download-2.apk`](beta/140-wave-mobile-beta-1.2.1-check-on-download-2.apk): Same as 139, to try it: from 139, Check now downloads and checks this one
 - **Test 139** · Wave Mobile Beta 1.2.1 · [`139-wave-mobile-beta-1.2.1-check-on-download.apk`](beta/139-wave-mobile-beta-1.2.1-check-on-download.apk): Updates: Check now downloads the update and runs the safety check straight away ("Safety check passed"), then offers Install, which opens Android's prompt at once
