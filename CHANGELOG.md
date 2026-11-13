@@ -4,6 +4,7 @@ Every test build and probe on this branch, newest first, with what changed in it
 
 ## Nov 13
 
+- **Test 158** · Wave Mobile Beta 1.2.3 · [`158-wave-mobile-beta-1.2.3-settings-backup.apk`](beta/158-wave-mobile-beta-1.2.3-settings-backup.apk): Updates tab → Backup: export / import settings, automatic daily / weekly / monthly backup to a picked file (phone, Google Drive, Proton Drive)
 - **Test 157** · Wave Mobile Beta 1.2.3 · [`157-wave-mobile-beta-1.2.3-volume-undone.apk`](beta/157-wave-mobile-beta-1.2.3-volume-undone.apk): Fine volume steps removed again (as 155)
 - **Test 156** · Wave Mobile Beta 1.2.3 · [`156-wave-mobile-beta-1.2.3-fine-volume.apk`](beta/156-wave-mobile-beta-1.2.3-fine-volume.apk): Fine volume steps (Wave tab → Volume, off by default): volume buttons move 0–100% everywhere, 1–10% per press; Android's step above plus a trim in Wave's player
 - **Test 155** · Wave Mobile Beta 1.2.3 · [`155-wave-mobile-beta-1.2.3-separate-colours.apk`](beta/155-wave-mobile-beta-1.2.3-separate-colours.apk): Visuals: separate colour settings for the analyzer and the meters (each its own adaptive switch, picker and reset)
