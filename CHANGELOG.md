@@ -5,6 +5,7 @@ Every test build and probe on this branch, newest first, with what changed in it
 ## Nov 13
 
 - **Probe 12** · Wave Probe 10 · [`12-wave-probe-10.apk`](probes/12-wave-probe-10.apk): Records Tidal's playlist and My Collection requests (path, field names and shapes only; no token, titles or ids), for playlist export / import
+- **Test 167** · Wave for TV Beta 2.1.5 · [`167-wave-beta-2.1.5-tv-stats-single.apk`](beta/167-wave-beta-2.1.5-tv-stats-single.apk): TV: Stats tab (with blocked counter), Single playback (HDMI keeps its volume; Do Not Disturb only where the TV has it), plus the meter styles, Analyzer level and separate colours from Mobile 1.2.4
 - **Test 166** · Wave Mobile Beta 1.2.3 · [`166-wave-mobile-beta-1.2.3-single-not-kept.apk`](beta/166-wave-mobile-beta-1.2.3-single-not-kept.apk): Single playback is off to start and not remembered: closing Wave switches it off and puts everything back (also on the next open if Wave was stopped)
 - **Test 165** · Wave Mobile Beta 1.2.3 · [`165-wave-mobile-beta-1.2.3-single-restart.apk`](beta/165-wave-mobile-beta-1.2.3-single-restart.apk): Switching Single playback on stops the current song and takes it back to its start, ready to play
 - **Test 164** · Wave Mobile Beta 1.2.3 · [`164-wave-mobile-beta-1.2.3-single-meters-on.apk`](beta/164-wave-mobile-beta-1.2.3-single-meters-on.apk): Single playback keeps the analyzers and meters running (they only read the sound); wording fixed

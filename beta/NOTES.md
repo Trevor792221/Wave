@@ -166,6 +166,7 @@
 | `164-wave-mobile-beta-1.2.3-single-meters-on.apk` | Nov 13 | Single playback keeps the analyzers and meters running (they only read the sound); wording fixed |
 | `165-wave-mobile-beta-1.2.3-single-restart.apk` | Nov 13 | Switching Single playback on stops the current song and takes it back to its start, ready to play |
 | `166-wave-mobile-beta-1.2.3-single-not-kept.apk` | Nov 13 | Single playback is off to start and not remembered: closing Wave switches it off and puts everything back (also on the next open if Wave was stopped) |
+| `167-wave-beta-2.1.5-tv-stats-single.apk` | Nov 13 | TV: Stats tab (with blocked counter), Single playback (HDMI keeps its volume; Do Not Disturb only where the TV has it), plus the meter styles, Analyzer level and separate colours from Mobile 1.2.4 |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
