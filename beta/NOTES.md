@@ -152,6 +152,7 @@
 | `150-wave-mobile-beta-1.2.3-analyzer-level.apk` | Nov 13 | Mobile: Analyzer level slider (Visuals → Spectrum analyzer, −12 to +12 dB) |
 | `151-wave-beta-2.1.5-analyzer-level.apk` | Nov 13 | TV: the same Analyzer level slider |
 | `152-wave-mobile-beta-1.2.3-stats.apk` | Nov 13 | Stats tab: time listened and songs played, skipped and hearted for today, this week, month and year (counted by Wave on the phone) |
+| `153-wave-mobile-beta-1.2.3-blocked-counter.apk` | Nov 13 | Stats: a Trackers and analytics blocked counter at the bottom |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner

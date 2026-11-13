@@ -4,6 +4,7 @@ Every test build and probe on this branch, newest first, with what changed in it
 
 ## Nov 13
 
+- **Test 153** · Wave Mobile Beta 1.2.3 · [`153-wave-mobile-beta-1.2.3-blocked-counter.apk`](beta/153-wave-mobile-beta-1.2.3-blocked-counter.apk): Stats: a Trackers and analytics blocked counter at the bottom
 - **Test 152** · Wave Mobile Beta 1.2.3 · [`152-wave-mobile-beta-1.2.3-stats.apk`](beta/152-wave-mobile-beta-1.2.3-stats.apk): Stats tab: time listened and songs played, skipped and hearted for today, this week, month and year (counted by Wave on the phone)
 - **Test 151** · Wave for TV Beta 2.1.5 · [`151-wave-beta-2.1.5-analyzer-level.apk`](beta/151-wave-beta-2.1.5-analyzer-level.apk): TV: the same Analyzer level slider
 - **Test 150** · Wave Mobile Beta 1.2.3 · [`150-wave-mobile-beta-1.2.3-analyzer-level.apk`](beta/150-wave-mobile-beta-1.2.3-analyzer-level.apk): Mobile: Analyzer level slider (Visuals → Spectrum analyzer, −12 to +12 dB)
