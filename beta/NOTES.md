@@ -164,6 +164,7 @@
 | `162-wave-mobile-beta-1.2.3-import-duplicates.apk` | Nov 13 | Import skips duplicates (twice in a file, or already in My Collection) and says how many |
 | `163-wave-mobile-beta-1.2.3-single-playback.apk` | Nov 13 | Wave tab → Single playback: each song stops at its end, Max quality, crossfade / normalization / fades / meters off, full level (Android max on USB, line out, wired), Do Not Disturb alarms-only; all put back when off |
 | `164-wave-mobile-beta-1.2.3-single-meters-on.apk` | Nov 13 | Single playback keeps the analyzers and meters running (they only read the sound); wording fixed |
+| `165-wave-mobile-beta-1.2.3-single-restart.apk` | Nov 13 | Switching Single playback on stops the current song and takes it back to its start, ready to play |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
