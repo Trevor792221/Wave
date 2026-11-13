@@ -439,6 +439,23 @@
     for (var i = 30; i < keys.length; i++) delete fairMem[keys[i]]; // remember the 30 latest lists
     try { localStorage.setItem(FAIR_KEY, JSON.stringify(fairMem)); } catch (e) {}
   }
+  // The songs in a list's round: each once (Tidal's queue can hold a song more than once), and
+  // for My Collection only songs in the collection (Tidal's list of them), not ones added after.
+  function roundOf(q, n) {
+    var inRound = {}, size = 0, fav = null, i;
+    if (/FAVORITE|COLLECTION/i.test(String(q.sourceEntityType || ''))) {
+      try {
+        var f = fairStore.getState().favorites;
+        if (f && Array.isArray(f.tracks) && f.tracks.length) { fav = {}; f.tracks.forEach(function (x) { fav[String(x)] = 1; }); }
+      } catch (e) {}
+    }
+    for (i = 0; i < n && i < q.elements.length; i++) {
+      var id = String(q.elements[i].mediaItemId);
+      if (fav && !fav[id]) continue;
+      if (!inRound[id]) { inRound[id] = 1; size++; }
+    }
+    return { has: inRound, size: size };
+  }
   function fairChange() {
     var q = fairQueue();
     if (!q) return;
@@ -455,8 +472,9 @@
     // Songs Tidal adds after the list (autoplay / related music) aren't part of the round.
     var n = mem.n && mem.n <= q.elements.length ? mem.n : q.elements.length;
     if (q.sourceName) mem.name = String(q.sourceName).slice(0, 80); // for the Wave tab
-    mem.size = n;
-    if (idx >= n) return;
+    var round = roundOf(q, n);
+    mem.size = round.size;
+    if (idx >= n || !round.has[id]) return; // not one of the list's songs
 
     var movedOn = prev && prev.src === src && (idx === prev.idx + 1 || (idx === 0 && prev.idx === n - 1));
     var started = now - shuffleStartAt < 3000;
@@ -473,7 +491,8 @@
     if (q.shuffleModeEnabled && (movedOn || started) && !picked && heard[id]) {
       for (var step = 1; step < n; step++) {
         var j = (idx + step) % n;
-        if (!heard[String(q.elements[j].mediaItemId)]) { fairJumpSoon(src, idx, id, j); return; } // that song counts once it has played 10 s
+        var jid = String(q.elements[j].mediaItemId);
+        if (round.has[jid] && !heard[jid]) { fairJumpSoon(src, idx, id, j); return; } // that song counts once it has played 10 s
       }
       mem.h = []; // nothing unheard left (shouldn't happen: rounds end at their last song)
       heard = {};
@@ -501,10 +520,9 @@
     fairPending = null;
     var mem = fairMem[pd.src];
     if (!mem) return;
-    var n = mem.size || q.elements.length, heard = {}, i, count = 0;
+    var round = roundOf(q, mem.n && mem.n <= q.elements.length ? mem.n : q.elements.length), n = round.size, count = 0, i;
     if (mem.h.indexOf(pd.id) < 0) mem.h.push(pd.id);
-    for (i = 0; i < mem.h.length; i++) heard[mem.h[i]] = 1;
-    for (i = 0; i < n && i < q.elements.length; i++) if (heard[String(q.elements[i].mediaItemId)]) count++;
+    for (i = 0; i < mem.h.length; i++) if (round.has[mem.h[i]]) count++; // each song once
     if (count >= n) {
       mem.h = []; // the round is complete: the next song (or next time) starts a new one
       if (q.shuffleModeEnabled) note('Fair shuffle: all ' + n + ' played, new round next');

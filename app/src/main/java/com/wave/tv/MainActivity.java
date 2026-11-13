@@ -685,7 +685,6 @@ public final class MainActivity extends Activity {
             if (file == null) return "Couldn't make " + clean + " there";
             try (java.io.OutputStream out = getContentResolver().openOutputStream(file, "w")) {
                 if (out == null) return "Couldn't write " + clean;
-                out.write(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF}); // so Excel reads it as UTF-8
                 out.write(String.valueOf(text).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
             return "";
@@ -1293,7 +1292,7 @@ public final class MainActivity extends Activity {
             });
         }
 
-        /** One exported file into the picked folder (CSV, marked UTF-8 for Excel). "" or what went wrong. */
+        /** One exported file into the picked folder (CSV in UTF-8, no marker: Google Sheets would show it as text). "" or what went wrong. */
         @JavascriptInterface
         public String libSave(String name, String text) {
             return saveToLibFolder(name, text);
