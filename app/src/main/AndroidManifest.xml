@@ -4,6 +4,8 @@
     <!-- Installing Wave's own updates from its GitHub releases (Android asks first). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Single playback: Do Not Disturb (alarms only) while it's on; the listener allows it first. -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <!-- Spectrum analyzer: Android's Visualizer measures the TV's sound output (nothing is recorded). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />

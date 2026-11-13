@@ -4,8 +4,6 @@
     xmlns:tools="http://schemas.android.com/tools">
     <!-- The media notification (Android 13+ asks before showing notifications). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Single playback: Do Not Disturb (alarms only) while it's on; Android asks the listener first. -->
-    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <!-- Which network is in use, for the separate Wi-Fi and mobile data audio quality. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Optional, granted only over ADB (adb shell pm grant com.wave.mobile android.permission.DUMP):

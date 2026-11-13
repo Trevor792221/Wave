@@ -515,7 +515,7 @@
     renderRounds();
   }
   setInterval(fairListen, 1000);
-  // ---------- Listening stats (Stats tab, phone) ----------
+  // ---------- Listening stats (Stats tab) ----------
   // Counted by Wave as you listen (Tidal has no history to read), kept per day in the app:
   // [songs played, songs skipped, songs hearted, seconds listened]. Played: a song heard for 10 s
   // (as in fair shuffle). Skipped: left with more than 10 s of it to go. Hearted: a song newly in
@@ -548,7 +548,7 @@
     try { WaveApp.statsPut(JSON.stringify(stats)); } catch (e) {}
   }
   function statTick() {
-    if (!W.phone || !fairStore) return;
+    if (!fairStore) return;
     var now = Date.now(), gap = statTickAt ? now - statTickAt : 1000, st;
     statTickAt = now;
     try { st = fairStore.getState(); } catch (e) { return; }
@@ -587,6 +587,18 @@
     if (statDirty && now - statDirty > 15000) statSave();
   }
   setInterval(function () { try { statTick(); } catch (e) {} }, 1000);
+  // Tidal's page has drawn something real (its loading screen is just its logo): the app's own
+  // loading screen can go. Real pages carry many data-test markers; the logo screen none.
+  (function () {
+    var tries = 0, t = setInterval(function () {
+      var n = 0;
+      try { n = document.querySelectorAll('[data-test]').length; } catch (e) {}
+      if (n >= 8 || document.querySelector('[data-test="combined-login-signup-button"]') || ++tries > 150) {
+        clearInterval(t);
+        requestAnimationFrame(function () { setTimeout(function () { try { WaveApp.pageReady(); } catch (e) {} }, 150); });
+      }
+    }, 100);
+  })();
   // ---------- The page's settings, for Wave's backups (phone) ----------
   // Soft pause and its fades, fair shuffle on/off, the quality per network, developer options:
   // copied to the app when they change, so a backup (even with Wave closed) has them.
@@ -662,13 +674,13 @@
     var favs = 0;
     try { var f = fairStore.getState().favorites; if (f && Array.isArray(f.tracks)) favs = f.tracks.length; } catch (e) {}
     var s2 = section('About these numbers');
-    s2.appendChild(card([row('Counted by Wave on this phone',
+    s2.appendChild(card([row('Counted by Wave on this ' + (W.phone ? 'phone' : 'TV'),
       'Since ' + (stats && stats.since ? new Date(stats.since + 'T12:00').toLocaleDateString() : 'today') +
       ' (Tidal doesn’t share a listening history). Played: heard for 10 seconds. Skipped: left with more than 10 seconds to go. ' +
       'Hearted: added to My Collection' + (favs ? ' (' + favs + ' songs there now)' : '') + '.')]));
     p.appendChild(s2);
     // Tracking and analytics requests Wave answered empty (Datadog), all told, above the explanation.
-    var s3 = section('Privacy'), bl = row('Trackers and analytics blocked', 'Answered empty without leaving the phone, since this build.');
+    var s3 = section('Privacy'), bl = row('Trackers and analytics blocked', 'Answered empty without leaving the ' + (W.phone ? 'phone' : 'TV') + ', since this build.');
     var bv = el('span', 'wv-t', '0');
     function blockedNow() { try { return Number(WaveApp.statsBlocked()) || 0; } catch (e) { return 0; } }
     bv.textContent = blockedNow().toLocaleString();
@@ -2411,11 +2423,11 @@
     libRender();
   }
   // The Wave tab's Single playback section: the switch, and what it can and can't do here.
-  function buildSingle(p) {
+  function buildSingle(p, info) {
     var ss = section('Single playback');
-    var sw = row('Single playback', 'Switching it on stops the song that\u2019s on and takes it back to the start, ready to play. Each song stops at its end. Max quality, Tidal\u2019s crossfade and loudness normalization off, Wave\u2019s fades off, full level from Tidal, and calls and notifications silenced. Everything goes back when it\u2019s switched off.');
+    var sw = row('Single playback', 'Switching it on stops the song that\u2019s on and takes it back to the start, ready to play. Each song stops at its end. Max quality, Tidal\u2019s crossfade and loudness normalization off, Wave\u2019s fades off, full level from Tidal, and ' + (info.phone ? 'calls and notifications' : 'notifications') + ' silenced. Everything goes back when it\u2019s switched off.');
     sw.appendChild(toggle(W.single, function (v) { W.setSingle(v); setTimeout(show, 600); }));
-    var dnd = row('Silence calls and notifications', ''), dndB = el('button', 'wv-btn', 'Allow');
+    var dnd = row(info.phone ? 'Silence calls and notifications' : 'Silence notifications', ''), dndB = el('button', 'wv-btn', 'Allow');
     dndB.type = 'button'; dndB.onclick = function () { try { WaveApp.singleDnd(); } catch (e) {} };
     dnd.appendChild(dndB);
     var vol = row('Full level', '');
@@ -2428,11 +2440,14 @@
       dnd.sub.textContent = i.dnd ? 'Do Not Disturb, alarms only, while Single playback is on (the music still plays).'
         : 'Wave needs Do Not Disturb access for this' + (i.iadb ? ': one tap through iAdb.' : ': Allow opens Android\u2019s page for it.');
       dndB.style.display = i.dnd ? 'none' : '';
+      dnd.style.display = i.dnd || i.dndPage ? '' : 'none'; // a TV without Do Not Disturb: nothing to silence or allow
+      if (!i.dnd && !i.dndPage) sw.sub.textContent = sw.sub.textContent.replace(/, and (calls and )?notifications silenced/, '');
       vol.sub.textContent = 'Tidal plays at full level. ' + (i.fullOutput
         ? 'Android\u2019s media volume goes to max on this output (' + (i.output || 'wired or USB') + '): set the loudness on the DAC or amp.'
-        : 'On ' + (i.output || 'this output') + ' Android\u2019s volume stays where you set it; it goes to max on a USB DAC, line out or wired headphones.');
+        : 'On ' + (i.output || 'this output') + ' Android\u2019s volume stays where you set it; it goes to max on a USB DAC, line out or wired headphones (not HDMI or Bluetooth, which can pass the volume on to the TV, amp or speaker).');
       var list = (i.effects || []).filter(function (n) { return !/visuali[sz]er/i.test(n); });
-      fx.sub.textContent = !i.dump ? 'Apps can\u2019t switch Android\u2019s or Samsung\u2019s effects (Dolby Atmos, equaliser, Adapt Sound) off. Grant the signal path\u2019s details (DUMP) to see which are on here.'
+      fx.sub.textContent = !i.dump ? (info.phone ? 'Apps can\u2019t switch Android\u2019s or Samsung\u2019s effects (Dolby Atmos, equaliser, Adapt Sound) off. Grant the signal path\u2019s details (DUMP) to see which are on here.'
+        : 'Apps can\u2019t switch the TV\u2019s sound effects (sound modes, Dolby processing, night mode) off: check them in its sound settings.')
         : list.length ? 'On now: ' + list.join(', ') + '. Apps can\u2019t switch these off: turn them off in Sound settings.' : 'None on that Wave can see.';
     }
     show();
@@ -2515,7 +2530,7 @@
     sf.appendChild(card([ff]));
     p.appendChild(sf);
 
-    if (info.phone) buildSingle(p);
+    buildSingle(p, info);
 
     var ss = section('Sleep timer');
     var sleep = row('Sleep timer', ''), sleepSel = el('select', 'wv-sel');
@@ -2614,6 +2629,17 @@
     qReset.onclick = function () { qSize.set(qDef); try { WaveApp.setSetting('qualitySize', qDef); } catch (e) {} };
     qHead.appendChild(qReset);
     sd.appendChild(card([qHead, qSize]));
+    // The loading screen shown while Tidal's page loads (in place of its logo).
+    var ld = row('Loading screen', 'What shows while Tidal\'s page loads. Preview shows it for 4 seconds.'), ldSel = el('select', 'wv-sel'), ldB = el('button', 'wv-btn', 'Preview');
+    [[0, 'Drawn'], [1, 'Flowing'], [2, 'Ripples'], [3, 'Levels'], [4, 'Sea']].forEach(function (o) { var op = el('option', '', o[1]); op.value = String(o[0]); ldSel.appendChild(op); });
+    ldSel.value = String(isFinite(info.loadingStyle) ? info.loadingStyle : 0);
+    ldSel.onchange = function () { try { WaveApp.setSetting('loadingStyle', Number(ldSel.value)); } catch (e) {} };
+    ldB.type = 'button'; ldB.style.marginLeft = '8px';
+    ldB.onclick = function () { try { WaveApp.previewLoading(Number(ldSel.value)); } catch (e) {} };
+    var ldBox = el('div'); ldBox.style.cssText = 'flex:none;display:flex;align-items:center';
+    ldBox.appendChild(ldSel); ldBox.appendChild(ldB);
+    ld.appendChild(ldBox);
+    sd.appendChild(card([ld]));
     if (!info.phone) { // TV: page width and the Previous button as Menu
       var pw = row('Page width', 'How wide Tidal\'s page is laid out: wider fits more on screen, narrower makes everything bigger.');
       var pwSel = el('select', 'wv-sel');
@@ -2692,7 +2718,7 @@
     e.className = String(e.className).split(/\s+/).filter(function (c) { return !/_active_/.test(c); }).join(' ');
   }
   // Wave's tabs after Tidal's: Visuals (the analyzers, meters and text size), Wave (shuffle and
-  // crash reports), Stats (phone: listening stats) and Updates (updates, developer options, license).
+  // crash reports), Stats (listening stats) and Updates (updates, developer options, license).
   var WAVE_TABS = [['visuals', 'Visuals'], ['wave', 'Wave'], ['stats', 'Stats'], ['updates', 'Updates']];
   function isWaveTab(e) { return /^settings-tab--(wave|visuals|stats|updates)$/.test(e.getAttribute('data-test') || ''); }
   function showWave(which) {
@@ -2793,21 +2819,26 @@
     [null, 'Keep awake', 'So the music doesn\'t stop when the screen turns off.'],
     [null, 'Change audio settings', 'Also needed by Android\'s sound measurement for the analyzer and meters.'],
     ['phone', 'See the network connection', 'Wi-Fi, mobile data or satellite, for the audio quality chosen for each.'],
-    ['phone', 'Do Not Disturb access (allowed by you, only for Single playback)', 'Silences calls and notifications (alarms still ring) while Single playback is on, and puts Do Not Disturb back as it was afterwards.']
+    [null, 'Do Not Disturb access (allowed by you, only for Single playback)', 'Silences calls and notifications (alarms still ring) while Single playback is on, and puts Do Not Disturb back as it was afterwards.']
   ];
   // What Wave adds to Tidal (the same list is in the README), before the permissions.
   var FEATURES = [
     ['Fair shuffle', 'With shuffle on, no song repeats until every song in the list has played (a song counts after 10 seconds of playing). Hold the shuffle button to switch it; the Wave tab shows how many have played this round, with a reset.'],
     ['Soft pause', 'Pausing fades the music out and playing fades it back in, with no click.'],
     ['Back where you left off', 'Wave opens on the song you were playing, at the same spot.'],
+    ['Signal path (phone)', 'Tap the quality line under the album art for the audio chain, from Tidal\'s stream to where the sound goes. Grant one extra permission (one tap through iAdb, or ADB from a computer) for what Android itself reports.'],
     ['Fun facts', 'A fact about the song from Wikipedia on the album art, 10 seconds in (a switch in the Wave tab).'],
+    ['Single playback', 'Each song stops at its end, at Max quality and full level, with crossfade, normalization and Wave\'s fades off and notifications silenced. Everything goes back when it\'s switched off (Wave tab).'],
+    ['Playlists and My Collection as spreadsheets (phone)', 'Export the playlists you tick (one CSV file each) and My Collection, and import them back (Updates tab).'],
+    ['Settings backup (phone)', 'Export and import Wave\'s settings, and an automatic daily, weekly or monthly backup to the phone or a drive (Updates tab).'],
+    ['Listening stats', 'Songs played, skipped and hearted, and time listened, for today, this week, this month and this year, and how many trackers were blocked (Stats tab).'],
     ['Sleep timer', 'Pauses the music after 30 minutes to 4 hours, also with Wave in the background.'],
     ['Audio quality for Wi-Fi and mobile data (phone)', 'A quality for each, switched by itself when the phone changes networks.'],
     ['Satellite data (phone)', 'Plays over T-Mobile\'s T-Satellite and other satellite data, with Tidal\'s adaptive streaming on.'],
     ['Quality line', 'What\'s really streaming, under the album art (e.g. FLAC · 16-bit / 44.1 kHz · 1066 kbps), in the quality\'s colour.'],
     ['Lighter page', 'Tidal\'s tracking and cookie banner are blocked.'],
-    ['Spectrum analyzers', 'Over the album art and in the player bar, fading in and out with the sound.'],
-    ['Level meters', 'VU and peak meters on the album art, in Analog, Digital or Deck style. Red means the sound really clipped; BT shows on Bluetooth.'],
+    ['Spectrum analyzers', 'Over the album art and in the player bar, fading in and out with the sound, with a level slider for how high the bars go. The analyzers and the meters each take the album art\'s colours or one you pick.'],
+    ['Level meters', 'VU and peak meters on the album art, in Analog 1, Analog 2, Digital 1 or Digital 2 style, and the VU meter can be switched off. Red means the sound really clipped; BT shows on Bluetooth.'],
     ['Text size (phone)', 'Tidal\'s whole page bigger or smaller together, and song rows that fit narrow screens.'],
     ['Swipes on the album art (phone)', 'Swipe left or right for the next or previous song, down to close the player; tap a song to play it.'],
     ['S Pen (phone)', 'Press the pen\'s button once to play or pause, twice for the next song.'],
@@ -2876,7 +2907,6 @@
     var tabs = tabRow();
     if (!tabs) { if (wavePanel) hideWave(); return; }
     WAVE_TABS.forEach(function (t) {
-      if (t[0] === 'stats' && !W.phone) return; // Stats: phone only for now
       if (tabs.querySelector('[data-test="settings-tab--' + t[0] + '"]')) return;
       var about = tabs.querySelector('[data-test="settings-tab--about"]'), tab = about.cloneNode(true);
       tab.setAttribute('data-test', 'settings-tab--' + t[0]);

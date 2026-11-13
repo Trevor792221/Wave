@@ -21,17 +21,17 @@ What Wave adds to Tidal's web player (also listed in the app: Settings → About
 - **Back where you left off**: Wave opens on the song you were playing, at the same spot.
 - **Signal path** (phone): tap the quality line under the album art for the audio chain, from Tidal's stream through Tidal's volume levelling, decoding, soft pause and Android's mixer (resampling, volume) to the output. With the optional DUMP permission (`adb shell pm grant com.wave.mobile android.permission.DUMP`) it also shows the sound effects switched on, the hardware's format and the Bluetooth codec. DUMP lets an app read Android's system reports; Wave reads only the audio and Bluetooth ones. With [iAdb](https://github.com/FileContainer/iAdb-api) (ADB on the phone itself, Android 11+ Wireless debugging) installed and running, the panel's **Grant with iAdb** button grants it in one tap: iAdb asks Allow / Deny, then runs that one `pm grant`.
 - **Fun facts** (on to start; Wave tab): a fact about the song from Wikipedia in a card on the album art, 10 seconds in. It sends each song's title and artist to Wikipedia; switch it off in the Wave tab to stop that.
-- **Single playback** (phone): each song stops at its end, at Max quality and full level, with crossfade, normalization and Wave's fades off and calls and notifications silenced.
+- **Single playback**: each song stops at its end, at Max quality and full level, with crossfade, normalization and Wave's fades off and calls and notifications silenced.
 - **Playlists and My Collection as spreadsheets** (phone): export the playlists you tick (one CSV file each) and My Collection, and import them back.
 - **Settings backup** (phone): export and import Wave's settings, and an automatic daily, weekly or monthly backup to the phone, Google Drive, Proton Drive or any drive in Android's file picker.
-- **Listening stats** (phone): songs played, skipped and hearted, and time listened, for today, this week, this month and this year.
+- **Listening stats**: songs played, skipped and hearted, and time listened, for today, this week, this month and this year.
 - **Sleep timer**: pauses the music after 30 minutes to 4 hours, also with Wave in the background.
 - **Audio quality for Wi-Fi and mobile data** (phone): a quality for each, switched by itself when the phone changes networks.
 - **Satellite data** (phone): plays over T-Mobile's T-Satellite and other satellite data, with Tidal's adaptive streaming on.
 - **Quality line**: what's really streaming, under the album art (e.g. FLAC · 16-bit / 44.1 kHz · 1066 kbps), in the quality's colour.
 - **Lighter page**: Tidal's tracking and cookie banner are blocked.
-- **Spectrum analyzers**: over the album art and in the player bar, fading in and out with the sound.
-- **Level meters**: VU and peak meters on the album art, in Analog, Digital or Deck style. Red means the sound really clipped; BT shows on Bluetooth.
+- **Spectrum analyzers**: over the album art and in the player bar, fading in and out with the sound, with a level slider for how high the bars go. The analyzers and the meters each take the album art's colours or one you pick.
+- **Level meters**: VU and peak meters on the album art, in Analog 1, Analog 2, Digital 1 or Digital 2 style, and the VU meter can be switched off. Red means the sound really clipped; BT shows on Bluetooth.
 - **Text size** (phone): Tidal's whole page bigger or smaller together, and song rows that fit narrow screens.
 - **Swipes on the album art** (phone): swipe left or right for the next or previous song, down to close the player; tap a song to play it.
 - **S Pen** (phone): press the pen's button once to play or pause, twice for the next song.
@@ -82,7 +82,7 @@ In **Settings → General**, Tidal's single audio quality is replaced by two: **
 
 **Satellite data** (T-Mobile's T-Satellite with Starlink, and other carriers' satellite data, Android 15 and later): Android only lets apps that declare themselves satellite-ready use a satellite connection, and Wave does. On satellite, Wave uses the **On mobile data** quality with Tidal's **Adaptive streaming** always on, so the quality drops to what the slow link carries; back on Wi-Fi or mobile data, Adaptive streaming goes back to how it was. Satellite data is slow and limited, so expect slow loading; whether the carrier's plan carries an app's data is up to the carrier.
 
-**Developer options**: tapping the version 5 times in the **Updates** tab (which also has the license) shows them: on TV **Page width** and **Previous button acts as Menu**; **Soft pause fades** (fade-out and fade-in length, 800 ms each to start, and the number of volume steps, 200), **Quality line** size (14 sp to start), and in Wave Beta builds **Test crash**. **Hide** puts them away again.
+**Developer options**: tapping the version 5 times in the **Updates** tab (which also has the license) shows them: on TV **Page width** and **Previous button acts as Menu**; **Soft pause fades** (fade-out and fade-in length, 800 ms each to start, and the number of volume steps, 200), **Quality line** size (14 sp to start), **Loading screen** (what shows while Tidal's page loads instead of its logo: Drawn (the default), Flowing, Ripples, Levels or Sea, with a 4-second Preview), and in Wave Beta builds **Test crash**. **Hide** puts them away again.
 
 While music plays, a notification shows the song, artist, cover and progress, with previous, play/pause and next. These buttons, the lock screen, headphone buttons and Android Auto all send Tidal's own player commands, the same ones its player buttons send.
 
@@ -92,13 +92,15 @@ Settings → Wave tab → **Sleep timer**: pick 30 minutes to 4 hours (in 30-min
 
 ### Single playback
 
+In Wave Mobile and Wave for TV (on a TV without Do Not Disturb, that part is left out).
+
 Settings → Wave tab → **Single playback**, for listening to one song at a time with nothing in the way. While it's on:
 
 - Switching it on stops the song that's playing and takes it back to its start, with the new settings, ready for you to press play.
 - Each song stops at its end (Tidal doesn't go on to the next one). Play the next yourself; it stops at its end too.
 - Tidal plays at **Max** quality, with adaptive streaming off (left on over satellite data), and its **Crossfade** and **loudness normalization** off.
 - Soft pause's fades are off, so pausing cuts at once. The analyzers and meters keep running: Android's sound measurement they use only reads the sound and passes it on bit for bit, so it changes nothing.
-- **Full level**: Tidal plays at full volume whatever its volume slider says. On a USB DAC, line out or wired headphones, Android's media volume goes to max too, so set the loudness on the DAC or amp. On Bluetooth and the phone's speaker Android's volume stays where you set it. Changing outputs while it's on follows the same rule.
+- **Full level**: Tidal plays at full volume whatever its volume slider says. On a USB DAC, line out or wired headphones, Android's media volume goes to max too, so set the loudness on the DAC or amp. On Bluetooth, HDMI (a TV or amp can take Android's volume over HDMI-CEC) and the device's own speaker, Android's volume stays where you set it. Changing outputs while it's on follows the same rule.
 - **Calls and notifications are silenced**: Do Not Disturb, alarms only (music still plays). This needs Do Not Disturb access: **Allow** gives it in one tap through iAdb when that's connected, or opens Android's page for it.
 - **Android's sound effects** (Dolby Atmos, the equaliser, Adapt Sound and the like) can't be switched off by an app. With the signal path's details granted (DUMP), the section lists the ones that are on, with a button to Android's sound settings.
 
@@ -125,7 +127,9 @@ What's in it: every setting in Wave's tabs, the page settings (Soft pause and it
 
 ### Listening stats
 
-Settings → **Stats** tab: time listened and songs played, skipped and hearted, for today, this week, this month and this year. Tidal doesn't share a listening history, so Wave counts these itself on the phone, from when the build with stats is installed. A song counts as played after 10 seconds of listening (as in Fair shuffle), as skipped when you move on with more than 10 seconds left, and as hearted when it's added to My Collection. Listening time follows the song's position, so skipping ahead within a song doesn't count. Below them, **Trackers and analytics blocked** counts the Datadog usage-tracking requests Wave has answered empty (see Lighter page). The numbers stay on the phone.
+In Wave Mobile and Wave for TV.
+
+Settings → **Stats** tab: time listened and songs played, skipped and hearted, for today, this week, this month and this year. Tidal doesn't share a listening history, so Wave counts these itself on the phone or TV, from when the build with stats is installed. A song counts as played after 10 seconds of listening (as in Fair shuffle), as skipped when you move on with more than 10 seconds left, and as hearted when it's added to My Collection. Listening time follows the song's position, so skipping ahead within a song doesn't count. Below them, **Trackers and analytics blocked** counts the Datadog usage-tracking requests Wave has answered empty (see Lighter page). The numbers stay on the device.
 
 ### S Pen
 
@@ -220,7 +224,7 @@ On its first open Wave says what the permissions Android asks about are for (Wav
 | Keep awake | So the music doesn't stop when the screen turns off. |
 | Change audio settings | Also needed by Android's Visualizer for the analyzer and meters. |
 | See the network connection | Wi-Fi, mobile data or satellite, for the audio quality chosen for each. |
-| Do Not Disturb access (Wave Mobile; you allow it in Android's settings or with one tap through iAdb, only if you use Single playback) | Silences calls and notifications (alarms still ring) while Single playback is on, and puts Do Not Disturb back as it was afterwards. |
+| Do Not Disturb access (you allow it in Android's settings, or on the phone with one tap through iAdb; only if you use Single playback, and only on devices that have Do Not Disturb) | Silences calls and notifications (alarms still ring) while Single playback is on, and puts Do Not Disturb back as it was afterwards. |
 
 Wave for TV uses the same list without notifications and the network connection.
 

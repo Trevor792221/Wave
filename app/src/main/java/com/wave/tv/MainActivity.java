@@ -51,6 +51,7 @@ public final class MainActivity extends Activity {
     /** In the player bar, between the time and the right-hand buttons: solid, while playing. */
     private final Analyzer barAnalyzer = new Analyzer(32, false, 1f, true);
     private FrameLayout root;
+    private LoadingWaves loading;
     private SharedPreferences prefs;
     private Updater updater;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -94,6 +95,10 @@ public final class MainActivity extends Activity {
         cursor = new CursorView(this);
         root.addView(web, new FrameLayout.LayoutParams(-1, -1));
         root.addView(cursor, new FrameLayout.LayoutParams(-1, -1));
+        // Wave's loading screen over Tidal's own (its logo) until the page has drawn; at most 20 s.
+        loading = new LoadingWaves(this, prefs.getInt("loadingStyle", LoadingWaves.DEFAULT_STYLE));
+        root.addView(loading, new FrameLayout.LayoutParams(-1, -1));
+        handler.postDelayed(() -> loading.leave(), 20_000);
         setContentView(root);
         // The page's width follows the screen's (rotating, unfolding) when Text size isn't 100%.
         web.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
@@ -619,7 +624,7 @@ public final class MainActivity extends Activity {
         if (!BuildConfig.TV) Backup.catchUp(this); // the automatic backup, if it's due
         // Single playback isn't kept from one run to the next: left on (Wave closed or stopped
         // meanwhile), Do Not Disturb and the volume go back as they were.
-        if (!BuildConfig.TV) SinglePlayback.set(this, false);
+        SinglePlayback.set(this, false);
         watchCarConnection();
         watchNetwork();
     }
@@ -1135,6 +1140,7 @@ public final class MainActivity extends Activity {
                         .put("vuShowVu", prefs.getBoolean("vuShowVu", true))
                         .put("anaGain", prefs.getInt("anaGain", 0))
                         .put("single", SinglePlayback.on(MainActivity.this))
+                        .put("loadingStyle", prefs.getInt("loadingStyle", LoadingWaves.DEFAULT_STYLE))
                         .put("miniMeters", prefs.getBoolean("miniMeters", false))
                         .put("vizAdaptive", prefs.getBoolean("vizAdaptive", true))
                         .put("qualitySize", prefs.getInt("qualitySize", QUALITY_SIZE)).put("qualitySizeDefault", QUALITY_SIZE)
@@ -1201,6 +1207,7 @@ public final class MainActivity extends Activity {
                 case "vuStyle": e.putInt(key, value >= 1 && value <= 3 ? value : 0); break; // 0 Analog 1, 3 Analog 2, 1 Digital 1, 2 Digital 2
                 case "vizColor": case "anaColor": e.putInt(key, value & 0xFFFFFF); break; // the meters', the analyzers'
                 case "anaGain": e.putInt(key, Math.max(-12, Math.min(12, value))); break; // dB, the analyzers' bars
+                case "loadingStyle": e.putInt(key, value >= 0 && value < LoadingWaves.STYLES ? value : LoadingWaves.DEFAULT_STYLE); break; // developer options
                 case "textSize": e.putInt("pageScale", Math.max(80, Math.min(130, value))); break;
                 case "qualitySize": e.putInt(key, Math.max(6, Math.min(24, value))); break; // sp (developer options)
                 case "pointerMode": // TV: the pointer instead of the highlight ring (the Wave tab; holding Menu too)
@@ -1321,6 +1328,22 @@ public final class MainActivity extends Activity {
                 if (days > 0 && prefs.getString("backupUri", null) == null) backupAction("pick"); // where to, first
                 else Backup.catchUp(MainActivity.this);
             });
+        }
+
+        /** Developer options: the loading screen in a style for 4 seconds, to see it. */
+        @JavascriptInterface
+        public void previewLoading(int style) {
+            handler.post(() -> {
+                LoadingWaves v = new LoadingWaves(MainActivity.this, style);
+                root.addView(v, new FrameLayout.LayoutParams(-1, -1));
+                handler.postDelayed(v::leave, 4000);
+            });
+        }
+
+        /** Tidal's page has drawn (not its loading logo any more): Wave's loading screen goes. */
+        @JavascriptInterface
+        public void pageReady() {
+            handler.post(() -> { if (loading != null) loading.leave(); });
         }
 
         /** Listening stats (the Stats tab): per-day counts, as the page's JSON. Kept on the phone only. */
@@ -2018,7 +2041,7 @@ public final class MainActivity extends Activity {
         updater.release();
         stopPlaybackService();
         WaveSession.detach(this);
-        if (!BuildConfig.TV && !isChangingConfigurations() && SinglePlayback.on(this)) SinglePlayback.set(this, false); // closing Wave ends it
+        if (!isChangingConfigurations() && SinglePlayback.on(this)) SinglePlayback.set(this, false); // closing Wave ends it
         if (carReceiver != null) unregisterReceiver(carReceiver);
         if (networkCallback != null) {
             try {

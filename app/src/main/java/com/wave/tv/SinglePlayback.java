@@ -14,10 +14,10 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * Single playback (Wave Mobile, the Wave tab), the phone's side: Do Not Disturb (alarms only, so
- * the music keeps playing) and Android's media volume at max where something after the phone sets
- * the loudness (a USB DAC, line out, wired headphones), but not on Bluetooth or the phone's
- * speaker. What was there before is kept and put back when it's switched off. The page does
+ * Single playback (the Wave tab), the device's side: Do Not Disturb (alarms only, so the music
+ * keeps playing; where the device has it) and Android's media volume at max where something after
+ * the device sets the loudness (a USB DAC, line out, wired headphones), but not on Bluetooth, HDMI
+ * or the device's own speaker. What was there before is kept and put back when it's switched off. The page does
  * Tidal's part (quality, crossfade, normalization, full level, stopping at each song's end).
  * Off to start, and not kept: closing Wave (or opening it after it was stopped) switches it off. The
  * analyzers and meters keep running: Android's Visualizer only reads the sound (its output is an
@@ -35,7 +35,7 @@ final class SinglePlayback {
     }
 
     static boolean on(Context c) {
-        return !BuildConfig.TV && prefs(c).getBoolean("single", false);
+        return prefs(c).getBoolean("single", false);
     }
 
     static void set(Context c, boolean on) {
@@ -153,6 +153,8 @@ final class SinglePlayback {
             case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP: case AudioDeviceInfo.TYPE_BLUETOOTH_SCO: case 26: case 27: case 30:
             case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER: case AudioDeviceInfo.TYPE_BUILTIN_EARPIECE: case 23: case 24:
             case AudioDeviceInfo.TYPE_REMOTE_SUBMIX:
+            // HDMI: a TV or amp may take Android's volume over HDMI-CEC (as Bluetooth speakers do)
+            case AudioDeviceInfo.TYPE_HDMI: case AudioDeviceInfo.TYPE_HDMI_ARC: case 29:
                 return false;
             default:
                 return true;
@@ -165,7 +167,9 @@ final class SinglePlayback {
         try {
             AudioManager am = c.getSystemService(AudioManager.class);
             int t = am == null ? AudioDeviceInfo.TYPE_BUILTIN_SPEAKER : output(am);
-            o.put("on", on(c)).put("dnd", dndAllowed(c)).put("fullOutput", fullLevelOutput(t));
+            o.put("on", on(c)).put("dnd", dndAllowed(c)).put("fullOutput", fullLevelOutput(t))
+                    .put("dndPage", new android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+                            .resolveActivity(c.getPackageManager()) != null);
             JSONObject chain = new JSONObject(AudioChain.info(c, ""));
             o.put("dump", chain.optBoolean("dump"));
             JSONObject dev = chain.optJSONObject("device");
