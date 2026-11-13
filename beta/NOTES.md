@@ -144,6 +144,7 @@
 | `142-wave-beta-2.1.3-version-ring.apk` | Nov 12 | TV: the highlight ring can land on the version in the Updates tab, so pressing OK 5 times there opens Developer options |
 | `143-wave-mobile-beta-1.2.2-fun-facts.apk` | Nov 12 | Fun facts (Wave tab, off to start): a Wikipedia fact about the song (else the artist) in a card at the bottom right of the album art, 10 s in, for 12 s; tap to close |
 | `144-wave-mobile-beta-1.2.3-signal-path.apk` | Nov 12 | Signal path: tap the quality line for the audio chain (Tidal stream, levelling, decoding, soft pause, Android mixer, output); more with the DUMP permission granted over ADB |
+| `145-wave-mobile-beta-1.2.3-iadb-grant.apk` | Nov 13 | Signal path: "Grant with iAdb" grants the DUMP permission in one tap through iAdb (written by hand, no libraries) |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner

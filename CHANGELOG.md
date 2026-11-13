@@ -2,6 +2,10 @@
 
 Every test build and probe on this branch, newest first, with what changed in it. The files are in [`beta/`](beta) and [`probes/`](probes); released versions are on the [releases page](https://github.com/Trevor792221/Wave/releases). A test build's version is the one it was built on: its changes come out in the next release.
 
+## Nov 13
+
+- **Test 145** · Wave Mobile Beta 1.2.3 · [`145-wave-mobile-beta-1.2.3-iadb-grant.apk`](beta/145-wave-mobile-beta-1.2.3-iadb-grant.apk): Signal path: "Grant with iAdb" grants the DUMP permission in one tap through iAdb (written by hand, no libraries)
+
 ## Nov 12
 
 - **Probe 11** · Wave Probe 9 · [`11-wave-probe-9.apk`](probes/11-wave-probe-9.apk): Records Tidal's page-change commands (router/…) in full, with ids in addresses masked, and the browser history's entry, for opening Settings with Menu
