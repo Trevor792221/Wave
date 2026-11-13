@@ -175,6 +175,7 @@
 | `173-wave-beta-2.1.5-loading-styles.apk` | Nov 13 | TV: the same Loading screen developer option |
 | `174-wave-mobile-beta-1.2.4-drawn-default.apk` | Nov 13 | Loading screen: Drawn is the default |
 | `175-wave-beta-2.1.5-drawn-default.apk` | Nov 13 | TV: the same |
+| `176-wave-mobile-beta-1.2.5-csv-and-rounds.apk` | Nov 13 | CSV files without the UTF-8 marker (Google Sheets showed it as text); Fair shuffle rounds count each song once, and for My Collection only songs in the collection |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
