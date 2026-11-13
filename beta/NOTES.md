@@ -160,6 +160,7 @@
 | `158-wave-mobile-beta-1.2.3-settings-backup.apk` | Nov 13 | Updates tab → Backup: export / import settings, automatic daily / weekly / monthly backup to a picked file (phone, Google Drive, Proton Drive) |
 | `159-wave-mobile-beta-1.2.3-playlists-csv.apk` | Nov 13 | Updates tab → Playlists and My Collection: export ticked playlists (one CSV each) and My Collection (3 CSVs); import CSVs as new playlists / into My Collection (by Tidal ID, ISRC or search). Built on 158 |
 | `160-wave-mobile-beta-1.2.3-playlists-fix.apk` | Nov 13 | Playlists / My Collection: fixes Tidal's 400 on include (comma), retries when Tidal can't be reached, uses only the API's sign-in, errors name the step |
+| `161-wave-mobile-beta-1.2.3-unavailable-csv.apk` | Nov 13 | Export: songs/albums no longer on Tidal go in separate (unavailable) CSVs; import skips songs Tidal turns down instead of stopping |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
