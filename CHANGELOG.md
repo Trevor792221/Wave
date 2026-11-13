@@ -4,6 +4,7 @@ Every test build and probe on this branch, newest first, with what changed in it
 
 ## Nov 13
 
+- **Test 146** · Wave Mobile Beta 1.2.3 · [`146-wave-mobile-beta-1.2.3-iadb-permission.apk`](beta/146-wave-mobile-beta-1.2.3-iadb-permission.apk): Grant with iAdb: Wave now declares iAdb's own permission (how iAdb finds apps to connect to); Output names more device types and shows the volume in dB
 - **Test 145** · Wave Mobile Beta 1.2.3 · [`145-wave-mobile-beta-1.2.3-iadb-grant.apk`](beta/145-wave-mobile-beta-1.2.3-iadb-grant.apk): Signal path: "Grant with iAdb" grants the DUMP permission in one tap through iAdb (written by hand, no libraries)
 
 ## Nov 12
