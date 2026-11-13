@@ -5,6 +5,7 @@ Every test build and probe on this branch, newest first, with what changed in it
 ## Nov 13
 
 - **Probe 12** · Wave Probe 10 · [`12-wave-probe-10.apk`](probes/12-wave-probe-10.apk): Records Tidal's playlist and My Collection requests (path, field names and shapes only; no token, titles or ids), for playlist export / import
+- **Test 178** · Wave Mobile Beta 1.2.6 · [`178-wave-mobile-beta-1.2.6-reload-on-play.apk`](beta/178-wave-mobile-beta-1.2.6-reload-on-play.apk): Instead of 177: the old page stays usable after a long sleep; only playing the paused song reloads first (picture on top), then plays
 - **Test 177** · Wave Mobile Beta 1.2.6 · [`177-wave-mobile-beta-1.2.6-quiet-reload.apk`](beta/177-wave-mobile-beta-1.2.6-quiet-reload.apk): After the page slept more than 5 min: quiet reload (the old page stays on screen until the new one is back on the song, and player); buttons run after it (fixes Tidal's S3015 after a long pause)
 - **Test 176** · Wave Mobile Beta 1.2.5 · [`176-wave-mobile-beta-1.2.5-csv-and-rounds.apk`](beta/176-wave-mobile-beta-1.2.5-csv-and-rounds.apk): CSV files without the UTF-8 marker (Google Sheets showed it as text); Fair shuffle rounds count each song once, and for My Collection only songs in the collection
 - **Test 175** · Wave for TV Beta 2.1.5 · [`175-wave-beta-2.1.5-drawn-default.apk`](beta/175-wave-beta-2.1.5-drawn-default.apk): TV: the same
