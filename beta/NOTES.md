@@ -176,6 +176,7 @@
 | `174-wave-mobile-beta-1.2.4-drawn-default.apk` | Nov 13 | Loading screen: Drawn is the default |
 | `175-wave-beta-2.1.5-drawn-default.apk` | Nov 13 | TV: the same |
 | `176-wave-mobile-beta-1.2.5-csv-and-rounds.apk` | Nov 13 | CSV files without the UTF-8 marker (Google Sheets showed it as text); Fair shuffle rounds count each song once, and for My Collection only songs in the collection |
+| `177-wave-mobile-beta-1.2.6-quiet-reload.apk` | Nov 13 | After the page slept more than 5 min: quiet reload (the old page stays on screen until the new one is back on the song, and player); buttons run after it (fixes Tidal's S3015 after a long pause) |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
