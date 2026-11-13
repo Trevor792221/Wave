@@ -11,3 +11,4 @@
 | `09-wave-probe-7.apk` | Nov 10 | Wave Mobile's Text size (Size button) and a record of the song rows and their panels |
 | `10-wave-probe-8.apk` | Nov 11 | Records Tidal's sign-in state (auth, session, user: their shape only, no names, ids or tokens), for opening the login page when signed out |
 | `11-wave-probe-9.apk` | Nov 12 | Records Tidal's page-change commands (router/…) in full, with ids in addresses masked, and the browser history's entry, for opening Settings with Menu |
+| `12-wave-probe-10.apk` | Nov 13 | Records Tidal's playlist and My Collection requests (path, field names and shapes only; no token, titles or ids), for playlist export / import |
