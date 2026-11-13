@@ -173,6 +173,8 @@
 | `171-wave-beta-2.1.5-loading-waves.apk` | Nov 13 | TV: the same loading screen |
 | `172-wave-mobile-beta-1.2.4-loading-styles.apk` | Nov 13 | Developer options: Loading screen style (Drawn, Flowing, Ripples, Levels, Sea) with a 4-second Preview |
 | `173-wave-beta-2.1.5-loading-styles.apk` | Nov 13 | TV: the same Loading screen developer option |
+| `174-wave-mobile-beta-1.2.4-drawn-default.apk` | Nov 13 | Loading screen: Drawn is the default |
+| `175-wave-beta-2.1.5-drawn-default.apk` | Nov 13 | TV: the same |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
