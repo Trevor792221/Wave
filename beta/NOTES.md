@@ -171,6 +171,8 @@
 | `169-wave-beta-2.1.5-features-list.apk` | Nov 13 | TV: the same features list, with 167's Stats and Single playback |
 | `170-wave-mobile-beta-1.2.4-loading-waves.apk` | Nov 13 | Wave's own loading screen (three moving waves, option E) instead of Tidal's logo |
 | `171-wave-beta-2.1.5-loading-waves.apk` | Nov 13 | TV: the same loading screen |
+| `172-wave-mobile-beta-1.2.4-loading-styles.apk` | Nov 13 | Developer options: Loading screen style (Drawn, Flowing, Ripples, Levels, Sea) with a 4-second Preview |
+| `173-wave-beta-2.1.5-loading-styles.apk` | Nov 13 | TV: the same Loading screen developer option |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
