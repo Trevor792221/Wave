@@ -2,6 +2,12 @@
 
 Wave for TV and Wave Mobile releases, newest first. Each version is on the [Releases](https://github.com/Trevor792221/Wave/releases) page. Wave Beta test builds have their own changelog on the `test-builds` branch.
 
+## Wave Mobile 1.2.7 (2026-11-13)
+
+No more Tidal error S3015 after a long pause.
+
+- After the page has slept a while (a song paused 10+ minutes with Wave in the background), playing that song reloads Tidal's page first (with Wave's loading screen), back on the same song at the same spot and screen, then plays. From the page, the notification, the lock screen, headphones or a remote. Browsing and picking other songs work straight away, without a reload
+
 ## Wave Mobile 1.2.6 (2026-11-13)
 
 Clean CSV files, fair shuffle rounds of each song once.

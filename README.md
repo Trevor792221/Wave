@@ -206,6 +206,8 @@ Pausing fades the song out over 0.8 s (in 200 small volume steps), then waits a 
 
 Music keeps playing when you leave the app or the screen turns off. Wave runs a small foreground service while playing and releases it 10 minutes after playback pauses.
 
+After that Tidal's page sleeps, to save battery. While it sleeps Tidal can't keep the paused song's stream fresh, so playing it again much later could fail (Tidal's error S3015). When the page has slept more than 5 minutes it wakes as usual and stays fully usable (picking another song gets a fresh stream), but playing the paused song reloads Tidal's page first, from its play button, the notification, the lock screen, headphones or a remote: the page reloads like Wave opening (with its loading screen), comes back on the same song, at the same spot (and in the full-screen player, if that was open), then it plays.
+
 ## Lighter page
 
 Datadog usage tracking and the cookie-consent banner are answered empty without leaving the TV. Tidal's own event reporting (which feeds your history and recommendations) and its anti-bot check are left alone.

@@ -360,6 +360,15 @@
           npActionAt = Date.now();
           setTimeout(spot, 50);
         }
+        if (W.stale && a && a.type === 'playbackControls/PLAY') { // the paused song, stale: fresh page first
+          W.stale = false;
+          try { WaveApp.staleReload(); } catch (e) {}
+          return a;
+        }
+        if (W.stale && a && /^playQueue\/(MOVE_TO|ADD_TRACK_LIST_TO_PLAY_QUEUE|ADD_MEDIA_ITEMS_TO_PLAY_QUEUE)$/.test(a.type)) {
+          W.stale = false; // another song: a fresh stream of its own
+          try { WaveApp.staleGone(); } catch (e) {}
+        }
         if (a && a.type === 'playQueue/MOVE_TO' && !fairJumping) userPickAt = Date.now(); // picked in the queue
         else if (a && a.type === 'playQueue/ADD_TRACK_LIST_TO_PLAY_QUEUE') {
           fairCountNext = true; // the list's own size = the queue right after it's added
@@ -1424,6 +1433,35 @@
   document.addEventListener('visibilitychange', function () { if (document.hidden) saveResume(); });
   addEventListener('pagehide', saveResume);
   W.saveResume = saveResume; // the app calls it when it goes to the background
+  // The app: the page slept so long the paused song's stream is stale. Playing it then goes
+  // through a fresh page (the app reloads it, then plays); picking another song is fine as is.
+  W.stale = false;
+  W.setStale = function (v) { W.stale = !!v; };
+
+  // ---------- Quiet reload (the app, after the page slept a long while) ----------
+  // Before: the song's spot and whether the full-screen player is open. After: once Tidal is
+  // back on that song (Wave's "where you left off" put it there), the player opens again if it
+  // was, and the app is told so its picture of the old page can go.
+  W.beforeReload = function () {
+    saveResume();
+    lsSet('wave.reopen', JSON.stringify({ np: !!playerOpen(), at: Date.now() }));
+  };
+  (function () {
+    var r = null;
+    try { r = JSON.parse(lsGet('wave.reopen')); } catch (e) {}
+    if (!r) return;
+    lsSet('wave.reopen', null);
+    if (Date.now() - r.at > 60000) return;
+    var tries = 0, opened = false, t = setInterval(function () {
+      tries++;
+      var ready = false;
+      try { ready = !!fairStore && resumeReady && document.querySelectorAll('[data-test]').length >= 8; } catch (e) {}
+      if (!ready && tries < 70) return;
+      if (ready && r.np && !playerOpen() && tries < 70) { if (!opened) { opened = true; openPlayer(); } return; }
+      clearInterval(t);
+      setTimeout(function () { try { WaveApp.reloadDone(); } catch (e) {} }, 400);
+    }, 150);
+  })();
 
   // ---------- Audio quality for Wi-Fi and for mobile data (Wave Mobile) ----------
   // Tidal has one streaming quality (settings.quality.streaming). Wave keeps one for Wi-Fi and one

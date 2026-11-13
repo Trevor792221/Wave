@@ -974,8 +974,7 @@ public final class MainActivity extends Activity {
         applyWake();
         handler.removeCallbacks(applyWake);
         handler.postDelayed(applyWake, WAKE_MS);
-        web.onResume();
-        web.resumeTimers();
+        if (wakePage(c)) return; // slept too long: the command runs once the fresh page is back
         web.evaluateJavascript("window.__wave&&window.__wave.cmd('" + c + "')", null);
     }
 
@@ -1026,6 +1025,73 @@ public final class MainActivity extends Activity {
      * The page is kept awake, as if on screen, while music plays, for 10 minutes after it pauses
      * (while the notification is up) and for a moment after any button press.
      */
+    // ---------- Fresh page after a long sleep ----------
+    // While the page sleeps (paused timers, see applyWake) Tidal can't keep the paused song's
+    // stream fresh, so after a while playing it again fails (Tidal's S3015). After more than 5
+    // minutes asleep the page wakes as usual and stays fully usable (picking another song gets a
+    // fresh stream), but playing the paused song reloads the page first (shown like Wave opening,
+    // with its loading screen), back on the same song at the same spot (and the full-screen
+    // player, if it was open), then it plays. From the page's play button, the notification, the
+    // lock screen, headphones or a remote alike.
+    private static final long STALE_MS = 5 * 60_000L;
+    private long asleepSince;
+    private String afterReload;
+    private boolean reloading;
+
+    private void sleepPage() {
+        if (asleepSince == 0) asleepSince = android.os.SystemClock.elapsedRealtime();
+        web.onPause();
+        web.pauseTimers();
+    }
+
+    /** The paused song's stream is too old to play: playing it reloads the page first. */
+    private boolean stale;
+
+    /** Wakes the page. True if the command (play) waits for a fresh page instead. */
+    private boolean wakePage(String command) {
+        if (asleepSince != 0 && android.os.SystemClock.elapsedRealtime() - asleepSince > STALE_MS) stale = true;
+        asleepSince = 0;
+        web.onResume();
+        web.resumeTimers();
+        if (stale) web.evaluateJavascript("window.__wave&&__wave.setStale&&__wave.setStale(true)", null);
+        boolean play = "play".equals(command) || ("toggle".equals(command) && !playing);
+        if (reloading && command != null) { afterReload = command; return true; }
+        if (!stale || !play) return false;
+        reloadThen(command);
+        return true;
+    }
+
+    /** A fresh page, then the command (play). */
+    void reloadThen(String command) {
+        stale = false;
+        afterReload = command;
+        if (!reloading) quietReload();
+    }
+
+    private void quietReload() {
+        reloading = true;
+        web.evaluateJavascript("window.__wave&&__wave.beforeReload&&__wave.beforeReload()", v -> {
+            if (visible) { // the reload shows like Wave opening: its loading screen until the page is up
+                if (loading != null && loading.getParent() != null) root.removeView(loading);
+                loading = new LoadingWaves(this, prefs.getInt("loadingStyle", LoadingWaves.DEFAULT_STYLE));
+                root.addView(loading, new FrameLayout.LayoutParams(-1, -1));
+            }
+            web.reload();
+            handler.removeCallbacks(reloadDone);
+            handler.postDelayed(reloadDone, 12_000); // at the latest
+        });
+    }
+
+    /** The new page is back where it was: the waiting command (play) runs. */
+    private final Runnable reloadDone = () -> {
+        handler.removeCallbacks(this.reloadDone);
+        reloading = false;
+        if (loading != null) loading.leave();
+        String c = afterReload;
+        afterReload = null;
+        if (c != null) handler.postDelayed(() -> web.evaluateJavascript("window.__wave&&window.__wave.cmd('" + c + "')", null), 300);
+    };
+
     private boolean awake() {
         return playing || serviceOn || android.os.SystemClock.elapsedRealtime() < wakeUntil;
     }
@@ -1033,10 +1099,7 @@ public final class MainActivity extends Activity {
     private void applyWake() {
         boolean on = awake();
         web.setKeepVisible(on);
-        if (!on && !visible) {
-            web.onPause();
-            web.pauseTimers();
-        }
+        if (!on && !visible) sleepPage();
     }
 
     private void publishSessionState() {
@@ -1337,6 +1400,24 @@ public final class MainActivity extends Activity {
                 root.addView(v, new FrameLayout.LayoutParams(-1, -1));
                 handler.postDelayed(v::leave, 4000);
             });
+        }
+
+        /** The page's play (button) on a song whose stream went stale: a fresh page, then play. */
+        @JavascriptInterface
+        public void staleReload() {
+            handler.post(() -> reloadThen("play"));
+        }
+
+        /** Another song was picked: it gets a fresh stream, so nothing is stale any more. */
+        @JavascriptInterface
+        public void staleGone() {
+            handler.post(() -> stale = false);
+        }
+
+        /** After a quiet reload: the page is back on its song (and screen). */
+        @JavascriptInterface
+        public void reloadDone() {
+            handler.post(reloadDone);
         }
 
         /** Tidal's page has drawn (not its loading logo any more): Wave's loading screen goes. */
@@ -2014,8 +2095,7 @@ public final class MainActivity extends Activity {
         super.onResume();
         visible = true;
         updateSpectrum();
-        web.onResume();
-        web.resumeTimers();
+        wakePage(null);
     }
 
     @Override
@@ -2028,10 +2108,7 @@ public final class MainActivity extends Activity {
         CookieManager.getInstance().flush(); // keep the Tidal login
         // Keep the page running while music plays or was paused only a short while ago (a phone
         // call, a stop at the shop): the car and headphone buttons can then carry on.
-        if (!awake()) {
-            web.onPause();
-            web.pauseTimers();
-        }
+        if (!awake()) sleepPage();
     }
 
     @Override
