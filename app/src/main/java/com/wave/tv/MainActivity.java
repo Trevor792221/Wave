@@ -26,6 +26,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.graphics.Bitmap;
 import android.widget.FrameLayout;
+import org.json.JSONObject;
 
 /**
  * Wave: a minimal TV browser for Tidal's web player.
@@ -129,6 +130,7 @@ public final class MainActivity extends Activity {
             public android.webkit.WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
                 String host = r.getUrl().getHost();
                 if (host != null && isBlocked(host)) {
+                    if (!host.equals("cdn.cookielaw.org")) countBlocked(); // the Stats tab's counter: tracking only
                     return new android.webkit.WebResourceResponse("text/plain", "utf-8", 204, "No Content",
                             null, new java.io.ByteArrayInputStream(new byte[0]));
                 }
@@ -210,6 +212,23 @@ public final class MainActivity extends Activity {
      * Requests not needed on a TV, answered empty without going out: Datadog usage tracking and
      * the cookie-consent banner. (Tidal's own event reporting and its anti-bot check stay.)
      */
+    /** Tracking and analytics requests answered empty (the Stats tab), saved every 10 and when Wave leaves the screen. */
+    private final java.util.concurrent.atomic.AtomicLong blocked = new java.util.concurrent.atomic.AtomicLong(-1);
+
+    private void countBlocked() {
+        if (blocked.get() < 0) blocked.compareAndSet(-1, prefs.getLong("blocked", 0));
+        if (blocked.incrementAndGet() % 10 == 0) saveBlocked();
+    }
+
+    /** An import is under way: nothing of this screen's may be saved over what it brings. */
+    private volatile boolean importing;
+
+    private void saveBlocked() {
+        if (importing) return;
+        long n = blocked.get();
+        if (n >= 0) prefs.edit().putLong("blocked", n).apply();
+    }
+
     private static boolean isBlocked(String host) {
         return host.equals("browser-intake-datadoghq.com") || host.endsWith(".browser-intake-datadoghq.com")
                 || host.equals("cdn.cookielaw.org");
@@ -597,8 +616,197 @@ public final class MainActivity extends Activity {
     private void setupMediaSession() {
         WaveSession.get(this);
         WaveSession.attach(this);
+        if (!BuildConfig.TV) Backup.catchUp(this); // the automatic backup, if it's due
+        // Single playback isn't kept from one run to the next: left on (Wave closed or stopped
+        // meanwhile), Do Not Disturb and the volume go back as they were.
+        if (!BuildConfig.TV) SinglePlayback.set(this, false);
         watchCarConnection();
         watchNetwork();
+    }
+
+    // ---------- Settings backup (Wave Mobile, the Updates tab) ----------
+
+    @SuppressWarnings("deprecation")
+    private void backupAction(String what) {
+        try {
+            switch (String.valueOf(what)) {
+                case "export": {
+                    android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT)
+                            .addCategory(android.content.Intent.CATEGORY_OPENABLE).setType("application/json")
+                            .putExtra(android.content.Intent.EXTRA_TITLE, "wave-settings-"
+                                    + new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT).format(new java.util.Date()) + ".json");
+                    startActivityForResult(i, Backup.REQ_EXPORT);
+                    break;
+                }
+                case "import":
+                    startActivityForResult(new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT)
+                            .addCategory(android.content.Intent.CATEGORY_OPENABLE).setType("*/*"), Backup.REQ_IMPORT);
+                    break;
+                case "pick":
+                    startActivityForResult(new android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT)
+                            .addCategory(android.content.Intent.CATEGORY_OPENABLE).setType("application/json")
+                            .putExtra(android.content.Intent.EXTRA_TITLE, "wave-settings-backup.json"), Backup.REQ_PICK);
+                    break;
+                case "now":
+                    new Thread(() -> {
+                        boolean ok = Backup.run(this);
+                        handler.post(() -> say(ok ? "Settings backed up" : prefs.getString("backupError", "The backup didn't work"), !ok));
+                    }).start();
+                    break;
+                default:
+                    break;
+            }
+        } catch (android.content.ActivityNotFoundException e) {
+            say("No file picker on this device", true);
+        }
+    }
+
+    // ---------- Playlists and My Collection files (Wave Mobile, the Updates tab) ----------
+    private static final int REQ_LIB_FOLDER = 74, REQ_LIB_OPEN = 75;
+    private String libThen = "";
+    private android.net.Uri libFolder;
+    private volatile String libFolderName = "";
+
+    private String saveToLibFolder(String name, String text) {
+        android.net.Uri tree = libFolder;
+        if (tree == null) return "No folder picked";
+        String clean = String.valueOf(name).replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_").trim();
+        if (clean.isEmpty() || clean.equals(".csv")) clean = "playlist.csv";
+        if (clean.length() > 120) clean = clean.substring(0, 116) + ".csv";
+        try {
+            android.net.Uri dir = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree,
+                    android.provider.DocumentsContract.getTreeDocumentId(tree));
+            android.net.Uri file = android.provider.DocumentsContract.createDocument(getContentResolver(), dir, "text/csv", clean);
+            if (file == null) return "Couldn't make " + clean + " there";
+            try (java.io.OutputStream out = getContentResolver().openOutputStream(file, "w")) {
+                if (out == null) return "Couldn't write " + clean;
+                out.write(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF}); // so Excel reads it as UTF-8
+                out.write(String.valueOf(text).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            return "";
+        } catch (Exception e) {
+            return "Couldn't save " + clean + ": " + e.getMessage();
+        }
+    }
+
+    /** The picked files, read (5 MB each at most), for the page: [{name, text}]. */
+    private void readLibFiles(java.util.List<android.net.Uri> uris) {
+        new Thread(() -> {
+            org.json.JSONArray files = new org.json.JSONArray();
+            for (android.net.Uri u : uris) {
+                String name = "file.csv";
+                try (android.database.Cursor q = getContentResolver().query(u, new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+                    if (q != null && q.moveToFirst() && q.getString(0) != null) name = q.getString(0);
+                } catch (Exception ignored) {
+                    // No name: "file.csv".
+                }
+                try (java.io.InputStream in = getContentResolver().openInputStream(u)) {
+                    if (in == null) continue;
+                    java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+                    byte[] buf = new byte[8192];
+                    for (int n; (n = in.read(buf)) > 0; ) {
+                        b.write(buf, 0, n);
+                        if (b.size() > 5_000_000) throw new java.io.IOException("too big");
+                    }
+                    files.put(new JSONObject().put("name", name).put("text", b.toString("UTF-8")));
+                } catch (Exception e) {
+                    String n = name;
+                    handler.post(() -> say("Couldn't read " + n, true));
+                }
+            }
+            String js = "window.__wave&&__wave.libFiles&&__wave.libFiles(" + JSONObject.quote(files.toString()) + ")";
+            handler.post(() -> web.evaluateJavascript(js, null));
+        }).start();
+    }
+
+    @Override
+    @SuppressWarnings("deprecation")
+    protected void onActivityResult(int request, int result, android.content.Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request == REQ_LIB_FOLDER) {
+            android.net.Uri tree = result == RESULT_OK && data != null ? data.getData() : null;
+            if (tree != null) {
+                try {
+                    getContentResolver().takePersistableUriPermission(tree, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            | android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                } catch (SecurityException ignored) {
+                    // Still usable while Wave runs.
+                }
+                libFolder = tree;
+                String n = android.provider.DocumentsContract.getTreeDocumentId(tree);
+                libFolderName = n.contains(":") ? n.substring(n.indexOf(':') + 1) : n;
+                if (libFolderName.isEmpty()) libFolderName = "the folder";
+            }
+            web.evaluateJavascript("window.__wave&&__wave.libFolder&&__wave.libFolder(" + (tree != null) + "," + JSONObject.quote(libThen) + ")", null);
+            return;
+        }
+        if (request == REQ_LIB_OPEN) {
+            if (result != RESULT_OK || data == null) return;
+            java.util.List<android.net.Uri> uris = new java.util.ArrayList<>();
+            if (data.getClipData() != null) {
+                for (int i = 0; i < data.getClipData().getItemCount(); i++) uris.add(data.getClipData().getItemAt(i).getUri());
+            } else if (data.getData() != null) {
+                uris.add(data.getData());
+            }
+            if (!uris.isEmpty()) readLibFiles(uris);
+            return;
+        }
+        if (request != Backup.REQ_EXPORT && request != Backup.REQ_IMPORT && request != Backup.REQ_PICK) return;
+        android.net.Uri uri = data == null ? null : data.getData();
+        if (result != RESULT_OK || uri == null) {
+            if (request == Backup.REQ_PICK && prefs.getString("backupUri", null) == null) prefs.edit().putInt("backupEvery", 0).apply();
+            return;
+        }
+        if (request == Backup.REQ_PICK) { // the automatic backup's file: kept, and written to right away
+            try {
+                getContentResolver().takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            } catch (SecurityException e) {
+                say("That place doesn't let Wave keep writing to it: pick another", true);
+                return;
+            }
+            String old = prefs.getString("backupUri", null);
+            if (old != null && !old.equals(uri.toString())) {
+                try {
+                    getContentResolver().releasePersistableUriPermission(android.net.Uri.parse(old), android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            | android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                } catch (SecurityException ignored) {
+                    // Already gone.
+                }
+            }
+            prefs.edit().putString("backupUri", uri.toString()).putString("backupName", Backup.describe(this, uri))
+                    .putInt("backupEvery", Math.max(1, prefs.getInt("backupEvery", 0))).apply();
+            backupAction("now");
+            Backup.schedule(this);
+            return;
+        }
+        new Thread(() -> {
+            try {
+                if (request == Backup.REQ_EXPORT) {
+                    Backup.write(this, uri);
+                    handler.post(() -> say("Settings exported", false));
+                } else {
+                    String text = Backup.read(this, uri);
+                    saveBlocked(); // this screen's own count first, then the file's
+                    importing = true;
+                    org.json.JSONObject page;
+                    try {
+                        page = Backup.restore(this, text);
+                    } catch (Exception bad) {
+                        importing = false;
+                        throw bad;
+                    }
+                    handler.post(() -> {
+                        say("Settings imported", false);
+                        // The page's own settings into its storage, then Wave starts again with them all.
+                        web.evaluateJavascript("window.__wave&&__wave.restorePage&&__wave.restorePage(" + JSONObject.quote(page.toString()) + ")",
+                                v -> handler.postDelayed(this::recreate, 300));
+                    });
+                }
+            } catch (Exception e) {
+                handler.post(() -> say(request == Backup.REQ_EXPORT ? "Export didn't work" : "That isn't a Wave settings file", true));
+            }
+        }).start();
     }
 
     // ---------- Wi-Fi, mobile data or satellite (Wave Mobile) ----------
@@ -924,11 +1132,16 @@ public final class MainActivity extends Activity {
                         .put("vuOpacity", prefs.getInt("vuOpacity", 60))
                         .put("vuMatch", prefs.getBoolean("vuMatch", false))
                         .put("vuStyle", prefs.getInt("vuStyle", 0))
+                        .put("vuShowVu", prefs.getBoolean("vuShowVu", true))
+                        .put("anaGain", prefs.getInt("anaGain", 0))
+                        .put("single", SinglePlayback.on(MainActivity.this))
                         .put("miniMeters", prefs.getBoolean("miniMeters", false))
                         .put("vizAdaptive", prefs.getBoolean("vizAdaptive", true))
                         .put("qualitySize", prefs.getInt("qualitySize", QUALITY_SIZE)).put("qualitySizeDefault", QUALITY_SIZE)
                         .put("anaAdaptive", prefs.getBoolean("anaAdaptive", true))
                         .put("vizColor", String.format("#%06X", prefs.getInt("vizColor", 0x33C3F0) & 0xFFFFFF))
+                        // the analyzers' own colour: until one is picked, the colour both used before
+                        .put("anaColor", String.format("#%06X", prefs.getInt("anaColor", prefs.getInt("vizColor", 0x33C3F0)) & 0xFFFFFF))
                         .put("textSize", prefs.getInt("pageScale", 100))
                         .put("textSizeMax", maxPageScale())
                         .put("phone", !BuildConfig.TV)
@@ -978,15 +1191,16 @@ public final class MainActivity extends Activity {
             });
         }
 
-        /** The Wave tab's player settings: analyzerOn, vuOn, vuMatch (0/1), vuOpacity (percent), vuStyle (0 analog, 1 digital, 2 deck), miniMeters (0/1), vizAdaptive (meters) and anaAdaptive (analyzers) (0/1), vizColor (RGB). */
+        /** The Wave tab's player settings: analyzerOn, vuOn, vuMatch (0/1), vuOpacity (percent), vuStyle (0 analog, 1 digital, 2 deck), miniMeters (0/1), vizAdaptive (meters) and anaAdaptive (analyzers) (0/1), vizColor (meters) and anaColor (analyzers) (RGB). */
         @JavascriptInterface
         public void setSetting(String key, int value) {
             SharedPreferences.Editor e = prefs.edit();
             switch (key == null ? "" : key) {
-                case "analyzerOn": case "labelsOn": case "vuOn": case "vuMatch": case "miniMeters": case "vizAdaptive": case "anaAdaptive": case "prevAsMenu": case "funFacts": e.putBoolean(key, value != 0); break;
+                case "analyzerOn": case "labelsOn": case "vuOn": case "vuMatch": case "miniMeters": case "vizAdaptive": case "anaAdaptive": case "prevAsMenu": case "funFacts": case "vuShowVu": e.putBoolean(key, value != 0); break;
                 case "vuOpacity": e.putInt(key, Math.max(0, Math.min(100, value))); break;
-                case "vuStyle": e.putInt(key, value == 1 || value == 2 ? value : 0); break;
-                case "vizColor": e.putInt(key, value & 0xFFFFFF); break;
+                case "vuStyle": e.putInt(key, value >= 1 && value <= 3 ? value : 0); break; // 0 Analog 1, 3 Analog 2, 1 Digital 1, 2 Digital 2
+                case "vizColor": case "anaColor": e.putInt(key, value & 0xFFFFFF); break; // the meters', the analyzers'
+                case "anaGain": e.putInt(key, Math.max(-12, Math.min(12, value))); break; // dB, the analyzers' bars
                 case "textSize": e.putInt("pageScale", Math.max(80, Math.min(130, value))); break;
                 case "qualitySize": e.putInt(key, Math.max(6, Math.min(24, value))); break; // sp (developer options)
                 case "pointerMode": // TV: the pointer instead of the highlight ring (the Wave tab; holding Menu too)
@@ -1032,6 +1246,101 @@ public final class MainActivity extends Activity {
             });
         }
 
+        /** The page's own settings (Soft pause, fades, fair shuffle, quality per network), for backups. */
+        @JavascriptInterface
+        public void pageSettings(String json) {
+            if (!importing && json != null && json.length() < 20_000 && json.startsWith("{")) prefs.edit().putString("pageSettings", json).apply();
+        }
+
+        /** Backup (the Updates tab): how it's set up and how the last one went. */
+        @JavascriptInterface
+        public String backupInfo() {
+            JSONObject o = new JSONObject();
+            try {
+                String u = prefs.getString("backupUri", null);
+                o.put("every", prefs.getInt("backupEvery", 0)).put("at", prefs.getLong("backupAt", 0))
+                        .put("file", u == null ? "" : prefs.getString("backupName", "the backup file"))
+                        .put("error", prefs.getString("backupError", ""));
+            } catch (Exception ignored) {
+                // Whatever was put in.
+            }
+            return o.toString();
+        }
+
+        /** export, import, pick (the automatic backup's file), now (a backup now). */
+        @JavascriptInterface
+        public void backup(String what) {
+            handler.post(() -> backupAction(what));
+        }
+
+        /** Playlists / My Collection export: Android's folder picker; the page hears back (then: what to export). */
+        @JavascriptInterface
+        public void libPickFolder(String then) {
+            handler.post(() -> {
+                libThen = then == null ? "" : then;
+                try {
+                    startActivityForResult(new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE), REQ_LIB_FOLDER);
+                } catch (android.content.ActivityNotFoundException e) {
+                    say("No folder picker on this device", true);
+                }
+            });
+        }
+
+        /** One exported file into the picked folder (CSV, marked UTF-8 for Excel). "" or what went wrong. */
+        @JavascriptInterface
+        public String libSave(String name, String text) {
+            return saveToLibFolder(name, text);
+        }
+
+        @JavascriptInterface
+        public String libFolderName() {
+            return libFolderName;
+        }
+
+        /** Import: Android's file picker (several files at once); the files go to the page. */
+        @JavascriptInterface
+        public void libOpen() {
+            handler.post(() -> {
+                try {
+                    startActivityForResult(new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT)
+                            .addCategory(android.content.Intent.CATEGORY_OPENABLE).setType("*/*")
+                            .putExtra(android.content.Intent.EXTRA_MIME_TYPES, new String[]{"text/csv", "text/comma-separated-values",
+                                    "application/csv", "text/plain", "application/vnd.ms-excel", "application/octet-stream"})
+                            .putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, true), REQ_LIB_OPEN);
+                } catch (android.content.ActivityNotFoundException e) {
+                    say("No file picker on this device", true);
+                }
+            });
+        }
+
+        /** How often the automatic backup runs: 0 off, else every that many days. */
+        @JavascriptInterface
+        public void backupEvery(int days) {
+            prefs.edit().putInt("backupEvery", days == 1 || days == 7 || days == 30 ? days : 0).apply();
+            handler.post(() -> {
+                if (days > 0 && prefs.getString("backupUri", null) == null) backupAction("pick"); // where to, first
+                else Backup.catchUp(MainActivity.this);
+            });
+        }
+
+        /** Listening stats (the Stats tab): per-day counts, as the page's JSON. Kept on the phone only. */
+        @JavascriptInterface
+        public String statsGet() {
+            return prefs.getString("stats", "{}");
+        }
+
+        /** How many tracking and analytics requests Wave has answered empty, all told. */
+        @JavascriptInterface
+        public long statsBlocked() {
+            long n = blocked.get();
+            return n >= 0 ? n : prefs.getLong("blocked", 0);
+        }
+
+        @JavascriptInterface
+        public void statsPut(String json) {
+            if (!importing && json != null && json.length() < 200_000 && json.startsWith("{")) prefs.edit().putString("stats", json).apply();
+        }
+
         /** Milliseconds until the sleep timer pauses (0: off). */
         @JavascriptInterface
         public long sleepLeft() {
@@ -1044,6 +1353,71 @@ public final class MainActivity extends Activity {
         @JavascriptInterface
         public void ringMoved(String point) {
             handler.post(() -> { if (ringMode) onRingPoint(point); });
+        }
+
+        /** iAdb for the one-tap DUMP grant: {"installed":…, "connected":…}. */
+        @JavascriptInterface
+        public String iadb() {
+            return "{\"installed\":" + IadbGrant.installed(MainActivity.this) + ",\"connected\":" + IadbGrant.connected() + "}";
+        }
+
+        /** The one-tap grant through iAdb; the answer goes to the page (__wave.iadbResult). */
+        @JavascriptInterface
+        public void iadbGrant() {
+            handler.post(() -> IadbGrant.grantDump(MainActivity.this, (state, text) -> {
+                say(text, true);
+                if (web != null) web.evaluateJavascript("window.__wave&&__wave.iadbResult&&__wave.iadbResult("
+                        + org.json.JSONObject.quote(state) + ")", null);
+            }));
+        }
+
+        /** Single playback (the Wave tab): on or off. The page does Tidal's part itself. */
+        @JavascriptInterface
+        public void setSingle(boolean on) {
+            handler.post(() -> SinglePlayback.set(MainActivity.this, on));
+        }
+
+        @JavascriptInterface
+        public String singleInfo() {
+            return SinglePlayback.info(MainActivity.this);
+        }
+
+        /** Do Not Disturb access: one tap through iAdb when it's connected, else Android's settings page. */
+        @JavascriptInterface
+        public void singleDnd() {
+            handler.post(() -> {
+                if (IadbGrant.connected()) {
+                    IadbGrant.grantDnd(MainActivity.this, (state, text) -> {
+                        say(text, true);
+                        if ("done".equals(state)) SinglePlayback.apply(MainActivity.this);
+                    });
+                    return;
+                }
+                try {
+                    startActivity(new android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS));
+                    say("Allow Wave here, then come back", true);
+                } catch (android.content.ActivityNotFoundException e) {
+                    say("This phone has no Do Not Disturb access page", true);
+                }
+            });
+        }
+
+        /** Android's sound settings (where Samsung keeps Dolby Atmos, the equaliser and the like). */
+        @JavascriptInterface
+        public void openSoundSettings() {
+            handler.post(() -> {
+                try {
+                    startActivity(new android.content.Intent(android.provider.Settings.ACTION_SOUND_SETTINGS));
+                } catch (android.content.ActivityNotFoundException ignored) {
+                    // None.
+                }
+            });
+        }
+
+        /** The audio chain's system side (AudioChain), for the signal-path panel. */
+        @JavascriptInterface
+        public String audioChain() {
+            return AudioChain.info(MainActivity.this, WaveSession.quality());
         }
 
         /** For the About tab: which permissions Android asks about are allowed (JSON). */
@@ -1311,6 +1685,9 @@ public final class MainActivity extends Activity {
             qualityView.setPadding(ph, pv, ph, pv); // room for the glow around the text
             qualityView.setGravity(android.view.Gravity.CENTER);
             qualityView.setSingleLine(true);
+            if (!BuildConfig.TV) { // tap: the signal path (the page's panel)
+                qualityView.setOnClickListener(v -> web.evaluateJavascript("window.__wave&&__wave.showChain&&__wave.showChain()", null));
+            }
             root.addView(qualityView, 1);
         }
         try {
@@ -1623,6 +2000,7 @@ public final class MainActivity extends Activity {
     protected void onStop() {
         super.onStop();
         visible = false;
+        saveBlocked();
         web.evaluateJavascript("window.__wave&&__wave.saveResume&&__wave.saveResume()", null); // the song's position
         updateSpectrum(); // stops it: nothing to draw while Wave isn't on screen
         CookieManager.getInstance().flush(); // keep the Tidal login
@@ -1640,6 +2018,7 @@ public final class MainActivity extends Activity {
         updater.release();
         stopPlaybackService();
         WaveSession.detach(this);
+        if (!BuildConfig.TV && !isChangingConfigurations() && SinglePlayback.on(this)) SinglePlayback.set(this, false); // closing Wave ends it
         if (carReceiver != null) unregisterReceiver(carReceiver);
         if (networkCallback != null) {
             try {

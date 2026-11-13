@@ -19,7 +19,12 @@ What Wave adds to Tidal's web player (also listed in the app: Settings → About
 - **Fair shuffle**: with shuffle on, no song repeats until every song in the list has played (a song counts once it has played for 10 seconds, so skipped songs stay in the round). Hold the shuffle button to switch it; the Wave tab shows how many have played this round, with a reset.
 - **Soft pause**: pausing fades the music out and playing fades it back in, with no click.
 - **Back where you left off**: Wave opens on the song you were playing, at the same spot.
+- **Signal path** (phone): tap the quality line under the album art for the audio chain, from Tidal's stream through Tidal's volume levelling, decoding, soft pause and Android's mixer (resampling, volume) to the output. With the optional DUMP permission (`adb shell pm grant com.wave.mobile android.permission.DUMP`) it also shows the sound effects switched on, the hardware's format and the Bluetooth codec. DUMP lets an app read Android's system reports; Wave reads only the audio and Bluetooth ones. With [iAdb](https://github.com/FileContainer/iAdb-api) (ADB on the phone itself, Android 11+ Wireless debugging) installed and running, the panel's **Grant with iAdb** button grants it in one tap: iAdb asks Allow / Deny, then runs that one `pm grant`.
 - **Fun facts** (on to start; Wave tab): a fact about the song from Wikipedia in a card on the album art, 10 seconds in. It sends each song's title and artist to Wikipedia; switch it off in the Wave tab to stop that.
+- **Single playback** (phone): each song stops at its end, at Max quality and full level, with crossfade, normalization and Wave's fades off and calls and notifications silenced.
+- **Playlists and My Collection as spreadsheets** (phone): export the playlists you tick (one CSV file each) and My Collection, and import them back.
+- **Settings backup** (phone): export and import Wave's settings, and an automatic daily, weekly or monthly backup to the phone, Google Drive, Proton Drive or any drive in Android's file picker.
+- **Listening stats** (phone): songs played, skipped and hearted, and time listened, for today, this week, this month and this year.
 - **Sleep timer**: pauses the music after 30 minutes to 4 hours, also with Wave in the background.
 - **Audio quality for Wi-Fi and mobile data** (phone): a quality for each, switched by itself when the phone changes networks.
 - **Satellite data** (phone): plays over T-Mobile's T-Satellite and other satellite data, with Tidal's adaptive streaming on.
@@ -85,6 +90,43 @@ While music plays, a notification shows the song, artist, cover and progress, wi
 
 Settings → Wave tab → **Sleep timer**: pick 30 minutes to 4 hours (in 30-minute steps) and Wave pauses the music when it's up (fading out with Soft pause), also with Wave in the background. The row shows how long is left; Off cancels it.
 
+### Single playback
+
+Settings → Wave tab → **Single playback**, for listening to one song at a time with nothing in the way. While it's on:
+
+- Switching it on stops the song that's playing and takes it back to its start, with the new settings, ready for you to press play.
+- Each song stops at its end (Tidal doesn't go on to the next one). Play the next yourself; it stops at its end too.
+- Tidal plays at **Max** quality, with adaptive streaming off (left on over satellite data), and its **Crossfade** and **loudness normalization** off.
+- Soft pause's fades are off, so pausing cuts at once. The analyzers and meters keep running: Android's sound measurement they use only reads the sound and passes it on bit for bit, so it changes nothing.
+- **Full level**: Tidal plays at full volume whatever its volume slider says. On a USB DAC, line out or wired headphones, Android's media volume goes to max too, so set the loudness on the DAC or amp. On Bluetooth and the phone's speaker Android's volume stays where you set it. Changing outputs while it's on follows the same rule.
+- **Calls and notifications are silenced**: Do Not Disturb, alarms only (music still plays). This needs Do Not Disturb access: **Allow** gives it in one tap through iAdb when that's connected, or opens Android's page for it.
+- **Android's sound effects** (Dolby Atmos, the equaliser, Adapt Sound and the like) can't be switched off by an app. With the signal path's details granted (DUMP), the section lists the ones that are on, with a button to Android's sound settings.
+
+Switching it off puts everything back as it was: Tidal's quality, adaptive streaming, crossfade and normalization, Wave's fades, Android's volume (unless you changed it meanwhile) and Do Not Disturb. It's off to start and isn't remembered: closing Wave switches it off and puts everything back the same way.
+
+### Playlists and My Collection
+
+Settings → **Updates** tab → **Playlists and My Collection**. The files are CSV, which Excel, Google Sheets and Numbers open directly.
+
+- **Export playlists** → **Choose** lists your playlists (yours and the ones you follow) with a box to tick for each, and **All playlists**. **Export** asks for a folder and saves each ticked playlist as its own file, named after it, one row per song: #, Title, Artists, Album, Length, ISRC, Tidal ID, Added. Videos in a playlist are left out. Songs Tidal no longer has (taken down, or not available in your country: the app hides them, but they stay saved) go in a separate file, `<playlist> (unavailable).csv`, with their Tidal ID and when they were added, the only things Tidal still tells about them.
+- **Export My Collection** saves three files: `collection-tracks.csv` (the same columns), `collection-albums.csv` (Title, Artists, Year, Tracks, UPC, Tidal ID, Added) and `collection-artists.csv` (Name, Tidal ID, Added). Unavailable songs and albums go in `collection-tracks-unavailable.csv` and `collection-albums-unavailable.csv`, so the main files match what the app shows.
+- **Import** takes one or more files and shows what each will do before **Start import**: a playlist file becomes a new playlist named after the file (unlisted, songs in the file's order); the three collection files add to My Collection. Each row's song is found by its Tidal ID, else its ISRC, else a search for its title and first artist, so rows you add in a spreadsheet with only a title and artist work too. Columns can be in any order. Duplicates are skipped: a song listed twice in a file is added once, and songs, albums or artists already in My Collection aren't added again. Afterwards Wave says how many were added, how many duplicates were skipped and which rows weren't found.
+
+Wave does this through Tidal's own API, signed in as you with the sign-in the Tidal page already uses (kept in memory only, never saved or sent anywhere else).
+
+### Settings backup
+
+Settings → **Updates** tab → **Backup**:
+
+- **Export** saves Wave's settings and stats to a file you name, wherever Android's file picker offers: the phone, Google Drive, Proton Drive (if its app adds itself to the picker) and so on. **Import** loads one; Wave starts again with those settings (the music stops for a moment).
+- **Automatic backup**: pick Daily, Weekly or Monthly, then the backup file. Wave overwrites that one file on that schedule, also when it's closed (Android runs it when the battery isn't low; if the phone was off or restarted, Wave catches up the next time it opens). **Back up now** does one straight away, and the row shows when the last one was made or why it didn't work.
+
+What's in it: every setting in Wave's tabs, the page settings (Soft pause and its fades, Fair shuffle, the quality for Wi-Fi and mobile data, developer options), the listening stats and the blocked counter. Not your Tidal sign-in, and nothing leaves the phone except to the place you pick. No extra permission is needed: Android's file picker gives Wave access to that one file only.
+
+### Listening stats
+
+Settings → **Stats** tab: time listened and songs played, skipped and hearted, for today, this week, this month and this year. Tidal doesn't share a listening history, so Wave counts these itself on the phone, from when the build with stats is installed. A song counts as played after 10 seconds of listening (as in Fair shuffle), as skipped when you move on with more than 10 seconds left, and as hearted when it's added to My Collection. Listening time follows the song's position, so skipping ahead within a song doesn't count. Below them, **Trackers and analytics blocked** counts the Datadog usage-tracking requests Wave has answered empty (see Lighter page). The numbers stay on the phone.
+
 ### S Pen
 
 On Galaxy phones whose S Pen has Air actions (the pen's button works away from the screen), pressing the button once plays or pauses, and twice skips to the next song, while Wave is on screen. Switch Wave on first in Settings → Advanced features → S Pen → Air actions (Samsung leaves new apps off).
@@ -109,9 +151,9 @@ Both fade in when there's sound and fade out with silence (and when playback pau
 
 Two needle meters sit inside the top corners of the cover in the full-screen player: **VU** (the averaged level, with a VU meter's slow needle; 0 VU = −18 dBFS) and **PEAK** (the peak level, a fast needle that falls back slowly; −40 to +3 dBFS). PEAK goes into the red only above 0 dBFS: the phone's output, after its volume, went over full scale and clipped. On Bluetooth the phone sends the sound at full level and the speaker sets the volume, so there the meters show the level sent (the song's own, whatever the volume) and say **BT** after their name. Android's capture is one combined signal, so they show two views of it rather than left and right. The needles take the cover's strongest colour, and the meters fade with the sound like the analyzers.
 
-**Meter style** picks how they look: **Analog** (needles), **Digital** (LED bars in the cover's colour with a live reading, e.g. `−3.2 VU`, and the last peak held for a second), or **Deck**: a tape deck's glowing level display across the top of the cover: a **VU** bar (the average level) and a **PK** bar (the peak level, its peak held a moment) with the dBFS scale between them. The red **OVER** lights only when the peak goes past full scale (the output clips).
+**Meter style** picks how they look: **Analog 1** (needles on dark glass, in the cover's colour), **Analog 2** (a classic backlit cream VU face with a black needle), **Digital 1** (LED bars in the cover's colour with a live reading, e.g. `−3.2 VU`, and the last peak held for a second) or **Digital 2** (a glowing level display across the top of the cover: a **VU** bar and a **PK** bar with the dBFS scale between them; the red **OVER** lights only when the peak goes past full scale). **VU meter** switches the VU (average) meter off, leaving the peak meter.
 
-**Adaptive colour** (on by default) colours them from the album art, switched separately for the analyzers and for the meters. Whichever is off uses one fixed colour picked with Hue, Saturation and Brightness sliders; **Reset** goes back to Wave's blue (#33C3F0). The OVER and red scale marks stay red.
+The analyzers and the meters each have their own colour settings. **Adaptive colour** (on by default) colours them from the album art; switched off, they use a fixed colour picked with Hue, Saturation and Brightness sliders, one for the analyzers and one for the meters. **Reset** goes back to Wave's blue (#33C3F0). The OVER and red scale marks stay red.
 
 **Meters in the player bar** shows the deck meters in the small player at the bottom instead of its analyzer, without the display's dark background.
 
@@ -178,6 +220,7 @@ On its first open Wave says what the permissions Android asks about are for (Wav
 | Keep awake | So the music doesn't stop when the screen turns off. |
 | Change audio settings | Also needed by Android's Visualizer for the analyzer and meters. |
 | See the network connection | Wi-Fi, mobile data or satellite, for the audio quality chosen for each. |
+| Do Not Disturb access (Wave Mobile; you allow it in Android's settings or with one tap through iAdb, only if you use Single playback) | Silences calls and notifications (alarms still ring) while Single playback is on, and puts Do Not Disturb back as it was afterwards. |
 
 Wave for TV uses the same list without notifications and the network connection.
 

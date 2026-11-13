@@ -21,9 +21,8 @@
   // Pause and play fade instead of cutting (from TIDAL+'s audio.js, in the Tidal- repo): a short
   // fade out before the song stops, then a moment for the sound already handed to Android to
   // play out, and a fade back in when it starts again, however it was paused or played (Tidal's
-  // buttons, the notification, headphones, Android Auto). Cutting the sound off mid-wave clicks,
-  // more so with Wave's analyzer in Android's effects chain. Tidal never sees the fades: reading
-  // the volume gives what Tidal set. Installed once (a re-run of this script leaves it be).
+  // buttons, the notification, headphones, Android Auto). Cutting the sound off mid-wave clicks.
+  // Tidal never sees the fades: reading the volume gives what Tidal set. Installed once (a re-run of this script leaves it be).
   (function () {
     var proto = HTMLMediaElement.prototype;
     if (proto.pause.__waveFade) return;
@@ -39,7 +38,10 @@
     var inMs = function () { return fadeSetting('fadeIn', 800, 50, 6000); };
     var fadeSteps = function () { return fadeSetting('fadeSteps', 200, 10, 400); };
     // On or off: the "Soft pause" switch above Tidal's Crossfade setting (on by default).
-    var softOn = function () { try { return localStorage.getItem('wave.softPause') !== '0'; } catch (e) { return true; } };
+    var softOn = function () {
+      if (W.single) return false; // Single playback: no fades
+      try { return localStorage.getItem('wave.softPause') !== '0'; } catch (e) { return true; }
+    };
     var clamp = function (v) { return Math.max(0, Math.min(1, v)); };
     // Raised-cosine curve: eases into and out of silence in tiny steps.
     var curve = function (x) { return (1 - Math.cos(Math.PI * clamp(x))) / 2; };
@@ -59,10 +61,14 @@
       return st;
     }
     function apply(el) {
-      var st = state(el), gain = gains.get(el);
-      if (gain) { gain.gain.value = st.mult; volumeDesc.set.call(el, st.base); }
-      else volumeDesc.set.call(el, clamp(st.base * st.mult));
+      var st = state(el), gain = gains.get(el), base = W.single ? 1 : st.base; // Single playback: full level
+      if (gain) { gain.gain.value = st.mult; volumeDesc.set.call(el, base); }
+      else volumeDesc.set.call(el, clamp(base * st.mult));
     }
+    W.reapplyVolume = function () { // Single playback switched: every player at its new level
+      players.forEach(apply);
+      document.querySelectorAll('audio,video').forEach(apply);
+    };
     function setMult(el, m) { var st = state(el); if (st.mult !== m) { st.mult = clamp(m); apply(el); } }
     Object.defineProperty(proto, 'volume', {
       configurable: true, enumerable: true,
@@ -509,6 +515,177 @@
     renderRounds();
   }
   setInterval(fairListen, 1000);
+  // ---------- Listening stats (Stats tab, phone) ----------
+  // Counted by Wave as you listen (Tidal has no history to read), kept per day in the app:
+  // [songs played, songs skipped, songs hearted, seconds listened]. Played: a song heard for 10 s
+  // (as in fair shuffle). Skipped: left with more than 10 s of it to go. Hearted: a song newly in
+  // My Collection. Listening time follows the song's position, so a seek ahead doesn't count and a
+  // late tick (the phone asleep) loses nothing.
+  var stats = null, statSong = null, statFavs = null, statDirty = 0, statTickAt = 0;
+  function statDay(t) {
+    var d = new Date(t || Date.now());
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function statLoad() {
+    if (stats) return stats;
+    try { stats = JSON.parse(WaveApp.statsGet() || '{}'); } catch (e) { stats = {}; }
+    if (!stats || typeof stats !== 'object') stats = {};
+    if (!stats.d) stats.d = {};
+    return stats;
+  }
+  function statAdd(i, n) {
+    var d = statLoad().d, k = statDay();
+    if (!d[k]) d[k] = [0, 0, 0, 0];
+    d[k][i] += n;
+    if (!stats.since) stats.since = k;
+    statDirty = statDirty || Date.now();
+  }
+  function statSave() {
+    if (!statDirty || !stats) return;
+    statDirty = 0;
+    var keys = Object.keys(stats.d).sort();
+    for (var i = 0; i < keys.length - 800; i++) delete stats.d[keys[i]]; // two years and more
+    try { WaveApp.statsPut(JSON.stringify(stats)); } catch (e) {}
+  }
+  function statTick() {
+    if (!W.phone || !fairStore) return;
+    var now = Date.now(), gap = statTickAt ? now - statTickAt : 1000, st;
+    statTickAt = now;
+    try { st = fairStore.getState(); } catch (e) { return; }
+    var pc = st.playbackControls || {}, id = currentTrackId(), pos = playPos();
+    var dur = pc.playbackContext && pc.playbackContext.actualDuration || 0, playing = pc.playbackState === 'PLAYING';
+    var s = statSong;
+    if (s && s.id !== id) { // the song changed: did the last one end, or was it left early?
+      if (s.heard > 0 && s.dur > 20 && s.pos < s.dur - 10) statAdd(1, 1);
+      else if (s.dur && s.pos < s.dur && playing) statAdd(3, Math.min(s.dur - s.pos, gap / 1000)); // its last moments
+      s = statSong = null;
+    }
+    if (dur) pos = Math.min(pos, dur);
+    // A new song: heard from its start, unless it began partway (resumed, or a seek right away).
+    if (id && !s) { s = statSong = { id: id, pos: playing && pos <= gap / 1000 + 1 ? 0 : pos, heard: 0, counted: false, dur: dur }; }
+    if (s) {
+      if (dur) s.dur = dur;
+      if (s.dur && s.pos >= s.dur - 3 && pos < 5) { s.heard = 0; s.counted = false; } // on repeat: played again
+      var moved = pos - s.pos;
+      if (playing && moved > 0) { // heard: as far as it moved, but not more than the time that passed
+        var add = Math.min(moved, gap / 1000 + 1);
+        s.heard += add;
+        statAdd(3, add);
+      }
+      s.pos = pos;
+      if (!s.counted && s.heard >= 10) { s.counted = true; statAdd(0, 1); }
+    }
+    // Hearts: songs new in Tidal's list of favourite tracks (not the first look, nor a list loading in).
+    var f = st.favorites, list = f && Array.isArray(f.tracks) ? f.tracks : null;
+    if (list) {
+      var set = {}, added = 0;
+      for (var i = 0; i < list.length; i++) { set[list[i]] = 1; if (statFavs && !statFavs[list[i]]) added++; }
+      if (statFavs && statFavs.n > 0 && added > 0 && added <= 3) statAdd(2, added);
+      set.n = list.length;
+      statFavs = set;
+    }
+    if (statDirty && now - statDirty > 15000) statSave();
+  }
+  setInterval(function () { try { statTick(); } catch (e) {} }, 1000);
+  // ---------- The page's settings, for Wave's backups (phone) ----------
+  // Soft pause and its fades, fair shuffle on/off, the quality per network, developer options:
+  // copied to the app when they change, so a backup (even with Wave closed) has them.
+  var PAGE_KEYS = /^wave\.(softPause|fadeIn|fadeOut|fadeSteps|fairOff|dev|quality\..+)$/, pageSent = null;
+  function pageSettings() {
+    var o = {};
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (PAGE_KEYS.test(k)) o[k] = localStorage.getItem(k);
+      }
+    } catch (e) {}
+    return JSON.stringify(o);
+  }
+  setInterval(function () {
+    if (!W.phone) return;
+    var s = pageSettings();
+    if (s === pageSent) return;
+    pageSent = s;
+    try { WaveApp.pageSettings(s); } catch (e) {}
+  }, 5000);
+  // An imported backup's page settings (the app starts again right after).
+  W.restorePage = function (json) {
+    var o = {};
+    try { o = JSON.parse(json) || {}; } catch (e) {}
+    try {
+      for (var i = localStorage.length - 1; i >= 0; i--) { var k = localStorage.key(i); if (PAGE_KEYS.test(k) && !(k in o)) localStorage.removeItem(k); }
+      Object.keys(o).forEach(function (k) { if (PAGE_KEYS.test(k)) localStorage.setItem(k, String(o[k])); });
+    } catch (e) {}
+    pageSent = null;
+    return true;
+  };
+  document.addEventListener('visibilitychange', function () { if (document.hidden) statSave(); });
+  // Sums for a period: today, this week (from the locale's first day), this month, this year.
+  function statSums() {
+    var d = statLoad().d, now = new Date(), y = now.getFullYear(), m = now.getMonth();
+    var first = 0; // Sunday unless the locale starts its week on another day
+    try { var wi = new Intl.Locale(navigator.language); wi = wi.getWeekInfo ? wi.getWeekInfo() : wi.weekInfo; if (wi && wi.firstDay) first = wi.firstDay % 7; } catch (e) {}
+    var ws = new Date(y, m, now.getDate() - ((now.getDay() - first + 7) % 7));
+    var from = { day: statDay(), week: statDay(ws.getTime()), month: statDay(new Date(y, m, 1).getTime()), year: y + '-01-01' };
+    var out = {};
+    Object.keys(from).forEach(function (p) {
+      var t = [0, 0, 0, 0];
+      Object.keys(d).forEach(function (k) { if (k >= from[p]) for (var i = 0; i < 4; i++) t[i] += d[k][i]; });
+      out[p] = t;
+    });
+    var all = [0, 0, 0, 0];
+    Object.keys(d).forEach(function (k) { for (var i = 0; i < 4; i++) all[i] += d[k][i]; });
+    out.all = all;
+    return out;
+  }
+  function statTime(sec) {
+    sec = Math.round(sec);
+    var h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60);
+    return h ? h + ' h ' + m + ' min' : m ? m + ' min' : sec + ' s';
+  }
+  function buildStats(p) {
+    var sums = statSums(), cols = [['day', 'Today'], ['week', 'This week'], ['month', 'This month'], ['year', 'This year']];
+    var what = [['Listened', 3, true], ['Songs played', 0], ['Songs skipped', 1], ['Songs hearted', 2]];
+    cols.forEach(function (c) {
+      var s = section(c[1]), rows = [];
+      what.forEach(function (w) {
+        var r = row(w[0], '');
+        r.sub.parentNode.removeChild(r.sub);
+        var v = el('span', 'wv-t', w[2] ? statTime(sums[c[0]][w[1]]) : String(Math.round(sums[c[0]][w[1]])));
+        v.setAttribute('data-stat', c[0] + w[1]);
+        r.appendChild(v);
+        rows.push(r);
+      });
+      s.appendChild(card(rows));
+      p.appendChild(s);
+    });
+    var favs = 0;
+    try { var f = fairStore.getState().favorites; if (f && Array.isArray(f.tracks)) favs = f.tracks.length; } catch (e) {}
+    var s2 = section('About these numbers');
+    s2.appendChild(card([row('Counted by Wave on this phone',
+      'Since ' + (stats && stats.since ? new Date(stats.since + 'T12:00').toLocaleDateString() : 'today') +
+      ' (Tidal doesn’t share a listening history). Played: heard for 10 seconds. Skipped: left with more than 10 seconds to go. ' +
+      'Hearted: added to My Collection' + (favs ? ' (' + favs + ' songs there now)' : '') + '.')]));
+    p.appendChild(s2);
+    // Tracking and analytics requests Wave answered empty (Datadog), all told, above the explanation.
+    var s3 = section('Privacy'), bl = row('Trackers and analytics blocked', 'Answered empty without leaving the phone, since this build.');
+    var bv = el('span', 'wv-t', '0');
+    function blockedNow() { try { return Number(WaveApp.statsBlocked()) || 0; } catch (e) { return 0; } }
+    bv.textContent = blockedNow().toLocaleString();
+    bl.appendChild(bv);
+    s3.appendChild(card([bl]));
+    p.insertBefore(s3, s2); // above About these numbers
+    // Keep the numbers current while the tab is open.
+    var timer = setInterval(function () {
+      if (!p.isConnected) { clearInterval(timer); return; }
+      bv.textContent = blockedNow().toLocaleString();
+      var n = statSums();
+      cols.forEach(function (c) { what.forEach(function (w) {
+        var v = p.querySelector('[data-stat="' + c[0] + w[1] + '"]');
+        if (v) v.textContent = w[2] ? statTime(n[c[0]][w[1]]) : String(Math.round(n[c[0]][w[1]]));
+      }); });
+    }, 2000);
+  }
   // ---------- Spectrum analyzer placement ----------
   // While Tidal's full-screen player is open, tell the app where the analyzer's bars go: over the
   // lower part of the cover art, standing on the cover's bottom edge and as wide as the cover
@@ -1241,7 +1418,7 @@
     renderQuality();
   }
   function applyQuality() {
-    if (!W.phone || !netKnown || !fairStore) return;
+    if (!W.phone || !netKnown || !fairStore || W.single) return; // Single playback holds Max
     applyAdaptive();
     var cur = tidalQuality(), want = savedQuality(net);
     if (!want) { // first time: both networks start from Tidal's current choice
@@ -1271,6 +1448,97 @@
       try { fairStore.dispatch({ type: 'settings/SET_ADAPTIVE_AUDIO_STREAMING_ENABLED', payload: want }); } catch (e) {}
     }
   }
+  // ---------- Single playback (phone, Wave tab) ----------
+  // Each song stops at its end; Max quality (adaptive streaming off, except on satellite), Tidal's
+  // crossfade and loudness normalization off, Wave's fades off, Tidal's volume at full. What Tidal
+  // had before is kept (wave.single.before) and put back when it's switched off. The app does Do
+  // Not Disturb, Android's volume and its own sound capture.
+  var SINGLE_KEY = 'wave.single.before', singleTimer = 0, singleStopAt = 0;
+  W.single = false;
+  function normOn(v) { return !!v && !/^(NONE|OFF|DISABLED|FALSE)$/i.test(String(v)); }
+  function singleTidal(on) {
+    if (!fairStore) return false;
+    var st;
+    try { st = fairStore.getState().settings; } catch (e) { return false; }
+    if (!st) return false;
+    var d = function (a) { try { fairStore.dispatch(a); } catch (e) {} };
+    var b = null;
+    try { b = JSON.parse(lsGet(SINGLE_KEY)); } catch (e) {}
+    var cur = tidalQuality();
+    if (on) {
+      if (!b) {
+        b = { q: cur, ad: st.adaptiveAudioStreamingEnabled, cf: st.crossfadeEnabled, norm: st.audioNormalization };
+        lsSet(SINGLE_KEY, JSON.stringify(b));
+      }
+      if (cur && cur !== 'HI_RES_LOSSLESS') { settingQuality = true; d({ type: 'settings/SET_STREAMING_QUALITY', payload: { from: cur, to: 'HI_RES_LOSSLESS' } }); settingQuality = false; }
+      if (st.adaptiveAudioStreamingEnabled && !onSat) d({ type: 'settings/SET_ADAPTIVE_AUDIO_STREAMING_ENABLED', payload: false });
+      if (st.crossfadeEnabled) d({ type: 'settings/SET_CROSSFADE_ENABLED', payload: false });
+      if (normOn(st.audioNormalization)) {
+        d({ type: 'settings/TOGGLE_NORMALIZATION' });
+        try { b.normOff = fairStore.getState().settings.audioNormalization; lsSet(SINGLE_KEY, JSON.stringify(b)); } catch (e) {}
+      }
+      return true;
+    }
+    if (!b) return true;
+    lsSet(SINGLE_KEY, null);
+    if (b.q && cur && b.q !== cur) { settingQuality = true; d({ type: 'settings/SET_STREAMING_QUALITY', payload: { from: cur, to: b.q } }); settingQuality = false; }
+    if (typeof b.ad === 'boolean' && st.adaptiveAudioStreamingEnabled !== b.ad) d({ type: 'settings/SET_ADAPTIVE_AUDIO_STREAMING_ENABLED', payload: b.ad });
+    if (typeof b.cf === 'boolean' && st.crossfadeEnabled !== b.cf) d({ type: 'settings/SET_CROSSFADE_ENABLED', payload: b.cf });
+    if (normOn(b.norm) && !normOn(st.audioNormalization)) d({ type: 'settings/TOGGLE_NORMALIZATION' });
+    applyQuality(); // then Wave's own choice for this network, as usual
+    return true;
+  }
+  // Each song stops right at its end, so Tidal never moves on to the next one.
+  function singleTick() {
+    if (!W.single) return;
+    var e = media();
+    if (!e || e.paused || !isFinite(e.duration) || e.duration < 2) return;
+    var left = e.duration - e.currentTime;
+    if (left > 0.8 || singleStopAt) return;
+    singleStopAt = Date.now();
+    setTimeout(function () {
+      singleStopAt = 0;
+      if (!W.single || e.paused) return;
+      try { e.pause(); } catch (x) {} // at the very end: stops at once (no fade)
+      try { if (fairStore) fairStore.dispatch({ type: 'playbackControls/PAUSE' }); } catch (x) {}
+    }, Math.max(0, left * 1000 - 60));
+  }
+  function singleRestart() {
+    if (!W.single || !fairStore) return;
+    var e = media();
+    try { if (e && !e.paused) e.pause(); } catch (x) {} // at once: no fade in Single playback
+    try { fairStore.dispatch({ type: 'playbackControls/PAUSE' }); } catch (x) {}
+    try { fairStore.dispatch({ type: 'playbackControls/SEEK', payload: 0 }); } catch (x) {}
+    setTimeout(function () { // Tidal moves the player itself; the element too if it hasn't
+      var m = media();
+      try { if (m && m.currentTime > 0.5 && m.paused) m.currentTime = 0; } catch (x) {}
+    }, 400);
+  }
+  W.setSingle = function (on, fromApp) {
+    on = !!on;
+    var was = W.single;
+    W.single = on;
+    if (W.reapplyVolume) W.reapplyVolume();
+    if (!fromApp) { try { WaveApp.setSingle(on); } catch (e) {} }
+    var tries = 0;
+    (function tidal() { // Tidal's part once its store is there
+      if (W.single !== on) return;
+      if (!singleTidal(on) && tries++ < 30) setTimeout(tidal, 1000);
+    })();
+    clearInterval(singleTimer);
+    if (on) singleTimer = setInterval(singleTick, 200);
+    // Switched on by the listener: the song that's on stops and goes back to its start (with the
+    // new settings), ready for play.
+    if (on && !was && !fromApp) setTimeout(singleRestart, 300);
+    return was;
+  };
+  // Not kept from one run to the next: if Wave was closed with it on, Tidal's settings go back
+  // as they were before it (once Tidal's store is there).
+  (function undo(tries) {
+    if (W.single || !lsGet(SINGLE_KEY)) return;
+    if (!singleTidal(false) && tries < 30) setTimeout(function () { undo(tries + 1); }, 1000);
+  })(0);
+
   W.setNetwork = function (n) {
     onSat = n === 'sat';
     if (onSat) n = 'cell';
@@ -1495,11 +1763,13 @@
     var f = function (n) { var k = (n + h / 60) % 6; return Math.round(255 * (v - v * s * Math.max(0, Math.min(k, 4 - k, 1)))); };
     return '#' + ((1 << 24) + (f(5) << 16) + (f(3) << 8) + f(1)).toString(16).slice(1).toUpperCase();
   }
-  function colorCard(info) {
-    var anaA = info.anaAdaptive !== false, metA = info.vizAdaptive !== false, color = /^#[0-9a-f]{6}$/i.test(info.vizColor || '') ? info.vizColor : VIZ_DEFAULT;
+  // One colour card: the album art's colours (adaptive) or a fixed one picked with hue, saturation
+  // and brightness sliders, with a reset to Wave's blue. The analyzers and the meters each have
+  // their own (adaptKey / colorKey: the settings).
+  function colorCard(info, title, what, adaptKey, colorKey) {
+    var adaptive = info[adaptKey] !== false, color = /^#[0-9a-f]{6}$/i.test(info[colorKey] || '') ? info[colorKey] : VIZ_DEFAULT;
     var hsv = hexToHsv(color);
-    var aRow = row('Analyzer: adaptive colour', 'The analyzers take the album art\'s colours. Off: the colour below.');
-    var mRow = row('Meters: adaptive colour', 'The meters take the album art\'s colours. Off: the colour below.');
+    var aRow = row(title + ': adaptive colour', 'The ' + what + ' take the album art\'s colours. Off: the colour below.');
     var pick = row('Colour', ''), swatch = el('span');
     swatch.style.cssText = 'flex:none;width:32px;height:32px;border-radius:7px;border:1px solid rgba(255,255,255,.3)';
     pick.appendChild(swatch);
@@ -1521,11 +1791,11 @@
     var saveWait = 0;
     function save() { // after the slider stops for a moment
       clearTimeout(saveWait);
-      saveWait = setTimeout(function () { try { WaveApp.setSetting('vizColor', parseInt(color.slice(1), 16)); } catch (e) {} }, 300);
+      saveWait = setTimeout(function () { try { WaveApp.setSetting(colorKey, parseInt(color.slice(1), 16)); } catch (e) {} }, 300);
     }
     function show(exact) {
       color = exact || hsvToHex(hsv[0], hsv[1], hsv[2]);
-      W.vizConfig('vizColor', color);
+      W.vizConfig(colorKey, color);
       swatch.style.background = color;
       pick.sub.textContent = color;
       sliders.forEach(function (r, i) { r.sl.value = String(hsv[i]); });
@@ -1535,28 +1805,21 @@
       sliders[1].sl.style.background = 'linear-gradient(90deg,' + hsvToHex(hsv[0], 0, hsv[2]) + ',' + hsvToHex(hsv[0], 100, hsv[2]) + ')';
       sliders[2].sl.style.background = 'linear-gradient(90deg,#000,' + hsvToHex(hsv[0], hsv[1], 100) + ')';
     }
-    function enable() {
-      var adaptive = anaA && metA; // the colour is in use while either is off
+    function enable() { // the colour is only in use with adaptive off
       [pick].concat(sliders).forEach(function (r) { r.style.opacity = adaptive ? '.4' : ''; });
       sliders.forEach(function (r) { r.sl.disabled = adaptive; });
       reset.disabled = adaptive;
     }
     reset.onclick = function () { hsv = hexToHsv(VIZ_DEFAULT); show(VIZ_DEFAULT); save(); };
-    aRow.appendChild(toggle(anaA, function (v) {
-      anaA = v;
-      try { WaveApp.setSetting('anaAdaptive', v ? 1 : 0); } catch (e) {}
-      W.vizConfig('anaAdaptive', v);
-      enable();
-    }));
-    mRow.appendChild(toggle(metA, function (v) {
-      metA = v;
-      try { WaveApp.setSetting('vizAdaptive', v ? 1 : 0); } catch (e) {}
-      W.vizConfig('vizAdaptive', v);
+    aRow.appendChild(toggle(adaptive, function (v) {
+      adaptive = v;
+      try { WaveApp.setSetting(adaptKey, v ? 1 : 0); } catch (e) {}
+      W.vizConfig(adaptKey, v);
       enable();
     }));
     show(color);
     enable();
-    return card([aRow, mRow, pick].concat(sliders));
+    return card([aRow, pick].concat(sliders));
   }
   // The Visuals tab: the analyzers, the meters and their colour.
   function buildVisuals(p, info) {
@@ -1589,12 +1852,14 @@
       W.vizConfig('analyzerOpacity', v);
       if (match) vSl.set(v);
     });
-    var vOn = row('VU meters', 'A VU meter and a peak meter in the top corners of the album art (Deck: one display across the top)');
+    var vOn = row('Meters', 'Level meters on the album art: a VU meter and a peak meter in its top corners (Digital 2: one display across the top)');
+    var vVu = row('VU meter', 'The VU (average level) meter. Off: only the peak meter shows');
+    vVu.appendChild(toggle(info.vuShowVu !== false, function (v) { setting('vuShowVu', v ? 1 : 0); }));
     vOn.appendChild(toggle(info.vuOn !== false, function (v) { setting('vuOn', v ? 1 : 0); }));
-    var vStyle = row('Meter style', 'Needle meters, LED bars with a number, or a tape deck\'s glowing VU and peak (PK) level display');
+    var vStyle = row('Meter style', 'Analog 1: needles on dark glass. Analog 2: a classic backlit VU face. Digital 1: LED bars with a number. Digital 2: a glowing VU and peak (PK) display');
     var styleSel = el('select', 'wv-sel');
-    [['0', 'Analog'], ['1', 'Digital'], ['2', 'Deck']].forEach(function (o) { var op = el('option', '', o[1]); op.value = o[0]; styleSel.appendChild(op); });
-    styleSel.value = String(info.vuStyle === 1 || info.vuStyle === 2 ? info.vuStyle : 0);
+    [['0', 'Analog 1'], ['3', 'Analog 2'], ['1', 'Digital 1'], ['2', 'Digital 2']].forEach(function (o) { var op = el('option', '', o[1]); op.value = o[0]; styleSel.appendChild(op); });
+    styleSel.value = String([1, 2, 3].indexOf(info.vuStyle) >= 0 ? info.vuStyle : 0);
     styleSel.onchange = function () { setting('vuStyle', styleSel.value); };
     vStyle.appendChild(styleSel);
     vSl = slider('VU meter opacity', match ? aOp : vOp, function (v) { vOp = v; setting('vuOpacity', v); });
@@ -1607,15 +1872,27 @@
       vSl.enable(!v);
     }));
     var sa = section('Spectrum analyzer');
-    sa.appendChild(card([aOn, aLabels, aSl]));
+    // Analyzer level: -12 to +12 dB on every bar (both analyzers).
+    var gl = function (v) { return 'Analyzer level: ' + (v > 0 ? '+' : '') + v + ' dB'; };
+    var g0 = isFinite(info.anaGain) ? info.anaGain : 0;
+    var aGain = row(gl(g0), 'Raises or lowers all the bars together (higher: taller bars)'), agT = aGain.querySelector('.wv-t');
+    aGain.style.flexDirection = 'column';
+    aGain.style.alignItems = 'stretch';
+    var agSl = el('input', 'wv-range');
+    agSl.type = 'range'; agSl.min = '-12'; agSl.max = '12'; agSl.step = '1'; agSl.value = String(g0);
+    agSl.oninput = function () { agT.textContent = gl(Number(agSl.value)); W.vizConfig('anaGain', Number(agSl.value)); };
+    agSl.onchange = function () { try { WaveApp.setSetting('anaGain', Number(agSl.value)); } catch (e) {} };
+    aGain.appendChild(agSl);
+    sa.appendChild(card([aOn, aLabels, aSl, aGain]));
     p.appendChild(sa);
     var vMini = row('Meters in the player bar', 'The small player at the bottom shows VU and peak (PK) level meters instead of the analyzer');
     vMini.appendChild(toggle(!!info.miniMeters, function (v) { setting('miniMeters', v ? 1 : 0); }));
     var sm = section('Meters');
-    sm.appendChild(card([vOn, vStyle, vSl, vMatch, vMini]));
+    sm.appendChild(card([vOn, vVu, vStyle, vSl, vMatch, vMini]));
     p.appendChild(sm);
     var sc = section('Colour');
-    sc.appendChild(colorCard(info));
+    sc.appendChild(colorCard(info, 'Analyzer', 'analyzers', 'anaAdaptive', 'anaColor'));
+    sc.appendChild(colorCard(info, 'Meters', 'meters', 'vizAdaptive', 'vizColor'));
     p.appendChild(sc);
   }
   // The Visuals tab's Display section (phones): how big Tidal's page is drawn (the TV has
@@ -1673,6 +1950,7 @@
     s2.appendChild(card([auto]));
     p.appendChild(s2);
 
+    if (info.phone) { buildLibrary(p); buildBackup(p); }
     var s3 = section('License');
     var lic = row('GNU General Public License, version 3',
       'Wave is free software: you can redistribute it and/or modify it under the terms of the GNU GPL version 3. ' +
@@ -1691,6 +1969,519 @@
     if (devOn()) showDev(p, s3, info);
     if (lastUpdate) W.updateStatus(lastUpdate);
   }
+  // ---------- Playlists and My Collection: export / import as spreadsheet files (phone) ----------
+  // Through Tidal's own public API (openapi.tidal.com, documented at developer.tidal.com), signed in
+  // as you: the page's own sign-in is borrowed from Tidal's requests as they go out (kept in memory
+  // only, never stored or sent anywhere else). Files are CSV: one row per song, opened by any
+  // spreadsheet app. Import finds each row's song by its Tidal ID, else its ISRC, else a search for
+  // its title and artists.
+  var LIB = { auth: '', country: '', busy: false, status: '', list: null, picked: {}, files: null, ui: null };
+  (function () {
+    if (!window.fetch || window.fetch.__waveLib) return;
+    var real = window.fetch;
+    LIB.fetch = real.bind(window);
+    var note = function (url, auth) {
+      // Only the API's own sign-in (openapi.tidal.com, tidal.com/v1 and /v2), not the login pages'.
+      if (!auth || !/^https:\/\/(openapi\.tidal\.com\/v2\/|(api\.)?tidal\.com\/v[12]\/)/i.test(url)) return;
+      if (/^Bearer /i.test(auth)) LIB.auth = auth;
+      var m = /[?&]countryCode=([A-Z]{2})\b/.exec(url);
+      if (m) LIB.country = m[1];
+    };
+    window.fetch = function (input, init) {
+      try {
+        var url = typeof input === 'string' ? input : (input && input.url) || '', h = (init && init.headers) || (input && input.headers), a = '';
+        if (h) a = typeof h.get === 'function' ? h.get('authorization') : (h.authorization || h.Authorization || '');
+        note(url, a);
+      } catch (e) {}
+      return real.apply(this, arguments);
+    };
+    window.fetch.__waveLib = true;
+    var open = XMLHttpRequest.prototype.open, setH = XMLHttpRequest.prototype.setRequestHeader;
+    XMLHttpRequest.prototype.open = function (m, u) { this.__wl = String(u); return open.apply(this, arguments); };
+    XMLHttpRequest.prototype.setRequestHeader = function (k, v) { try { if (/^authorization$/i.test(k)) note(this.__wl || '', v); } catch (e) {} return setH.apply(this, arguments); };
+  })();
+  var API2 = 'https://openapi.tidal.com/v2';
+  function libWait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function libCountry() {
+    if (LIB.country) return LIB.country;
+    try { var s = fairStore && fairStore.getState(); var c = s && s.session && s.session.countryCode; if (c) return c; } catch (e) {}
+    return 'US';
+  }
+  // One request to Tidal's API, signed in as you; waits and tries again when Tidal says slow down.
+  function api(method, path, body, tries) {
+    tries = tries || 0;
+    if (!LIB.auth) return libWait(1500).then(function () { if (!LIB.auth && tries > 3) throw new Error('Tidal isn’t signed in yet'); return api(method, path, body, tries + 1); });
+    var h = { authorization: LIB.auth, accept: 'application/vnd.api+json' };
+    if (body) { h['content-type'] = 'application/vnd.api+json'; h['idempotency-key'] = 'wave-' + Date.now() + '-' + Math.random().toString(36).slice(2); }
+    var where = path.split('?')[0].replace(/\/[0-9a-f-]{8,}|\/\d+/gi, '').replace(/^\//, '');
+    return LIB.fetch(API2 + path, { method: method, headers: h, body: body ? JSON.stringify(body) : undefined, credentials: 'omit' }).then(function (r) {
+      if ((r.status === 429 || r.status >= 500) && tries < 6) {
+        var wait = Math.min(30, Number(r.headers.get('retry-after')) || (2 << tries)) * 1000;
+        return libWait(wait).then(function () { return api(method, path, body, tries + 1); });
+      }
+      if (r.status === 401 && tries < 2) return libWait(2000).then(function () { return api(method, path, body, tries + 1); }); // a new sign-in on its way
+      return r.text().then(function (t) {
+        var j = null; try { j = t ? JSON.parse(t) : {}; } catch (e) {}
+        if (!r.ok) { var er = j && j.errors && j.errors[0]; throw new Error('Tidal said ' + r.status + ' (' + where + ')' + (er && (er.detail || er.title) ? ': ' + (er.detail || er.title) : '')); }
+        return j || {};
+      });
+    }, function (e) { // no answer at all (the connection, or Tidal's gateway): a few more tries
+      if (tries < 3) return libWait(1500 * (tries + 1)).then(function () { return api(method, path, body, tries + 1); });
+      throw new Error('couldn\u2019t reach Tidal (' + where + ')');
+    });
+  }
+  function qs(o) {
+    var out = [];
+    Object.keys(o).forEach(function (k) {
+      // Commas stay as they are: Tidal reads include=artists,albums but not artists%2Calbums.
+      [].concat(o[k]).forEach(function (v) { if (v !== undefined && v !== null && v !== '') out.push(encodeURIComponent(k).replace(/%5B/g, '[').replace(/%5D/g, ']') + '=' + encodeURIComponent(v).replace(/%2C/gi, ',')); });
+    });
+    return out.length ? '?' + out.join('&') : '';
+  }
+  // Every page of a list (data and included), following Tidal's cursor.
+  function apiAll(path, q, each) {
+    var data = [], inc = [], n = 0;
+    function page(cursor) {
+      var qq = Object.assign({}, q); if (cursor) qq['page[cursor]'] = cursor;
+      return api('GET', path + qs(qq)).then(function (j) {
+        data = data.concat(j.data || []); inc = inc.concat(j.included || []);
+        if (each) each(data.length);
+        var next = j.links && j.links.meta && j.links.meta.nextCursor;
+        if (next && ++n < 1000) return page(next);
+        return { data: data, included: inc };
+      });
+    }
+    return page('');
+  }
+  function byId(included) { var m = {}; (included || []).forEach(function (r) { m[r.type + ':' + r.id] = r; }); return m; }
+  function names(rel, idx, type) {
+    return ((rel && rel.data) || []).map(function (d) { var r = idx[(type || d.type) + ':' + d.id]; return r && r.attributes ? (r.attributes.name || r.attributes.title) : ''; }).filter(Boolean);
+  }
+  function isoLen(d) { // "PT4M21S" -> "4:21"
+    var m = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?/.exec(d || ''); if (!m) return '';
+    var s = (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + Math.round(+m[3] || 0), h = Math.floor(s / 3600);
+    return (h ? h + ':' + ('0' + Math.floor(s % 3600 / 60)).slice(-2) : Math.floor(s / 60)) + ':' + ('0' + s % 60).slice(-2);
+  }
+  // Details (title, artists, album, ISRC...) of tracks or albums, 20 at a time.
+  function details(type, ids, progress) {
+    var out = {}, i = 0, inc = type === 'tracks' ? ['artists', 'albums'] : ['artists'];
+    function next() {
+      if (i >= ids.length) return Promise.resolve(out);
+      var part = ids.slice(i, i + 20); i += 20;
+      return api('GET', '/' + type + qs({ countryCode: libCountry(), 'filter[id]': part, include: inc.join(',') })).then(function (j) {
+        var idx = byId(j.included);
+        (j.data || []).forEach(function (r) { out[r.id] = { a: r.attributes || {}, artists: names(r.relationships && r.relationships.artists, idx, 'artists'), albums: names(r.relationships && r.relationships.albums, idx, 'albums') }; });
+        if (progress) progress(Math.min(i, ids.length), ids.length);
+        return next();
+      });
+    }
+    return next();
+  }
+  function csvCell(v) { v = v === undefined || v === null ? '' : String(v); return /[",\n\r]/.test(v) || /^[=+\-@]/.test(v) ? '"' + (/^[=+\-@]/.test(v) ? "'" : '') + v.replace(/"/g, '""') + '"' : v; }
+  function csv(rows) { return rows.map(function (r) { return r.map(csvCell).join(','); }).join('\r\n') + '\r\n'; }
+  function plural(n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); }
+  function day(t) { return t ? String(t).slice(0, 10) : ''; }
+  function title(a) { return (a.title || '') + (a.version ? ' (' + a.version + ')' : ''); }
+  function libSay(s) {
+    LIB.status = s;
+    if (LIB.ui && LIB.ui.status) { LIB.ui.status.textContent = s; LIB.ui.statusRow.style.display = s ? '' : 'none'; }
+  }
+  function libSave(name, text) {
+    var r = '';
+    try { r = WaveApp.libSave(name, text); } catch (e) { r = 'Wave couldn’t save it'; }
+    if (r) throw new Error(r);
+  }
+  // Your playlists (yours and the ones you follow), newest first.
+  function libPlaylists() {
+    return apiAll('/userCollectionPlaylists/me/relationships/items', { collectionView: 'FLAT', include: 'items', sort: '-lastModifiedAt', countryCode: libCountry() }).then(function (j) {
+      var idx = byId(j.included);
+      return j.data.filter(function (d) { return d.type === 'playlists'; }).map(function (d) {
+        var r = idx['playlists:' + d.id], a = (r && r.attributes) || {};
+        return { id: d.id, name: a.name || 'Playlist', count: a.numberOfItems };
+      });
+    });
+  }
+  // A list of songs as a file of the ones Tidal still has (numbered as in the app) and, if any,
+  // a second file of the ones it no longer has (taken down or not available here): only their
+  // Tidal ID and when they were added are known. Returns how many are unavailable.
+  function songFiles(name, goneSuffix, list, det) {
+    var rows = [['#', 'Title', 'Artists', 'Album', 'Length', 'ISRC', 'Tidal ID', 'Added']], lost = [['#', 'Tidal ID', 'Added']];
+    list.forEach(function (d) {
+      var t = det[d.id];
+      if (t) rows.push([rows.length, title(t.a), t.artists.join(', '), t.albums[0] || '', isoLen(t.a.duration), t.a.isrc || '', d.id, day(d.meta && d.meta.addedAt)]);
+      else lost.push([lost.length, d.id, day(d.meta && d.meta.addedAt)]);
+    });
+    libSave(name + '.csv', csv(rows));
+    if (lost.length > 1) libSave(name + goneSuffix + '.csv', csv(lost));
+    return lost.length - 1;
+  }
+  function exportPlaylist(pl, n, total) {
+    libSay('Exporting ' + pl.name + ' (' + n + ' of ' + total + ')…');
+    return apiAll('/playlists/' + pl.id + '/relationships/items', { countryCode: libCountry() }).then(function (j) {
+      var songs = j.data.filter(function (d) { return d.type === 'tracks'; }), videos = j.data.length - songs.length;
+      return details('tracks', songs.map(function (d) { return d.id; }), function (a, b) { libSay('Exporting ' + pl.name + ': ' + a + ' of ' + b + ' songs (' + n + ' of ' + total + ')…'); }).then(function (det) {
+        var gone = songFiles(pl.name, ' (unavailable)', songs, det);
+        LIB.gone += gone;
+        return videos;
+      });
+    });
+  }
+  W.libExport = function () { // the checked playlists, each to its own file
+    var chosen = (LIB.list || []).filter(function (p) { return LIB.picked[p.id]; });
+    if (!chosen.length || LIB.busy) return;
+    LIB.busy = true;
+    var i = 0, videos = 0;
+    LIB.gone = 0;
+    (function next() {
+      if (i >= chosen.length) return Promise.resolve();
+      var pl = chosen[i++];
+      return exportPlaylist(pl, i, chosen.length).then(function (v) { videos += v; return next(); });
+    })().then(function () {
+      libSay('Exported ' + chosen.length + (chosen.length === 1 ? ' playlist' : ' playlists') + ' to ' + (WaveApp.libFolderName() || 'the folder') + '.' + (LIB.gone ? ' ' + LIB.gone + (LIB.gone === 1 ? ' song is' : ' songs are') + ' no longer on Tidal: listed in the \u201c(unavailable)\u201d files.' : '') + (videos ? ' (' + videos + ' videos left out: the files hold songs.)' : ''));
+    }, function (e) { libSay('Export stopped: ' + e.message); }).then(function () { LIB.busy = false; libRender(); });
+  };
+  W.libExportCollection = function () {
+    if (LIB.busy) return;
+    LIB.busy = true;
+    var c = libCountry(), counts = [];
+    libSay('Exporting My Collection: songs…');
+    apiAll('/userCollectionTracks/me/relationships/items', { sort: '-addedAt', locale: 'en-US' }, function (n) { libSay('Exporting My Collection: ' + n + ' songs found…'); }).then(function (j) {
+      var ids = j.data.filter(function (d) { return d.type === 'tracks'; });
+      return details('tracks', ids.map(function (d) { return d.id; }), function (a, b) { libSay('Exporting My Collection: song details ' + a + ' of ' + b + '…'); }).then(function (det) {
+        var gone = songFiles('collection-tracks', '-unavailable', ids, det);
+        counts.push(plural(ids.length - gone, 'song') + (gone ? ' (+ ' + gone + ' no longer on Tidal, in collection-tracks-unavailable.csv)' : ''));
+      });
+    }).then(function () {
+      libSay('Exporting My Collection: albums…');
+      return apiAll('/userCollectionAlbums/me/relationships/items', { sort: '-addedAt', locale: 'en-US' }).then(function (j) {
+        var ids = j.data.filter(function (d) { return d.type === 'albums'; });
+        return details('albums', ids.map(function (d) { return d.id; })).then(function (det) {
+          var rows = [['#', 'Title', 'Artists', 'Year', 'Tracks', 'UPC', 'Tidal ID', 'Added']], lost = [['#', 'Tidal ID', 'Added']];
+          ids.forEach(function (d) {
+            var t = det[d.id];
+            if (t) rows.push([rows.length, title(t.a), t.artists.join(', '), String(t.a.releaseDate || '').slice(0, 4), t.a.numberOfItems || '', t.a.barcodeId || '', d.id, day(d.meta && d.meta.addedAt)]);
+            else lost.push([lost.length, d.id, day(d.meta && d.meta.addedAt)]);
+          });
+          libSave('collection-albums.csv', csv(rows));
+          if (lost.length > 1) libSave('collection-albums-unavailable.csv', csv(lost));
+          counts.push(plural(rows.length - 1, 'album') + (lost.length > 1 ? ' (+ ' + (lost.length - 1) + ' no longer on Tidal, in collection-albums-unavailable.csv)' : ''));
+        });
+      });
+    }).then(function () {
+      libSay('Exporting My Collection: artists…');
+      return apiAll('/userCollectionArtists/me/relationships/items', { include: 'items', sort: '-addedAt', locale: 'en-US', countryCode: c }).then(function (j) {
+        var idx = byId(j.included), rows = [['#', 'Name', 'Tidal ID', 'Added']], ids = j.data.filter(function (d) { return d.type === 'artists'; });
+        ids.forEach(function (d, i) { var r = idx['artists:' + d.id]; rows.push([i + 1, r && r.attributes ? r.attributes.name : '', d.id, day(d.meta && d.meta.addedAt)]); });
+        libSave('collection-artists.csv', csv(rows)); counts.push(plural(ids.length, 'artist'));
+      });
+    }).then(function () {
+      libSay('Exported My Collection (' + counts.join(', ') + ') to ' + (WaveApp.libFolderName() || 'the folder') + '.');
+    }, function (e) { libSay('Export stopped: ' + e.message + (counts.length ? ' (saved so far: ' + counts.join(', ') + ')' : '')); }).then(function () { LIB.busy = false; libRender(); });
+  };
+
+  // ---- Import ----
+  function parseCsv(text) {
+    text = String(text || '').replace(/^﻿/, '');
+    var rows = [], row = [], cell = '', q = false;
+    var sep = /^[^\n]*;/.test(text) && !/^[^\n]*,/.test(text) ? ';' : ','; // some spreadsheets save with ;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === sep) { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); cell = ''; if (row.some(function (c) { return c.trim(); })) rows.push(row); row = []; }
+      else cell += ch;
+    }
+    row.push(cell); if (row.some(function (c) { return c.trim(); })) rows.push(row);
+    return rows;
+  }
+  // What a file is: its columns (any order; extra columns are fine) and where it goes.
+  function readFile(f) {
+    var rows = parseCsv(f.text), head = (rows.shift() || []).map(function (h) { return h.trim().toLowerCase(); });
+    var col = function () { for (var i = 0; i < arguments.length; i++) { var k = head.indexOf(arguments[i]); if (k >= 0) return k; } return -1; };
+    var c = { title: col('title', 'name', 'song', 'track'), artists: col('artists', 'artist'), album: col('album'), isrc: col('isrc'), id: col('tidal id', 'id'), upc: col('upc') };
+    var base = f.name.replace(/\.(csv|txt)$/i, ''), kind = /^collection-albums/i.test(base) ? 'albums' : /^collection-artists/i.test(base) ? 'artists' : /^collection-tracks/i.test(base) ? 'collection' : 'playlist';
+    if (c.title < 0 && c.id < 0 && c.isrc < 0) return { name: f.name, error: 'no Title, ISRC or Tidal ID column' };
+    var items = rows.map(function (r, i) {
+      var v = function (k) { return c[k] >= 0 ? String(r[c[k]] || '').trim().replace(/^'(?=[=+\-@])/, '') : ''; };
+      return { row: i + 2, title: v('title'), artists: v('artists'), album: v('album'), isrc: v('isrc').toUpperCase(), id: (v('id').match(/^\d+$/) || [''])[0], upc: v('upc') };
+    }).filter(function (x) { return x.title || x.id || x.isrc; });
+    return { name: f.name, base: base, kind: kind, items: items };
+  }
+  W.libFiles = function (json) { // files picked for import
+    var files = [];
+    try { files = JSON.parse(json); } catch (e) {}
+    LIB.files = files.map(readFile);
+    libSay('');
+    libRender();
+  };
+  function findBySearch(it, type) {
+    var q = (it.title + ' ' + it.artists.split(',')[0]).trim();
+    if (!q) return Promise.resolve('');
+    return api('GET', '/searchResults/' + encodeURIComponent(q) + '/relationships/' + type + qs({ countryCode: libCountry(), include: type })).then(function (j) {
+      var want = it.title.toLowerCase().replace(/\s*[\(\[].*$/, ''), first = '';
+      var idx = byId(j.included);
+      (j.data || []).some(function (d) {
+        var r = idx[d.type + ':' + d.id], t = r && r.attributes ? String(r.attributes.title || r.attributes.name || '').toLowerCase() : '';
+        if (!first) first = d.id;
+        if (t && (t.indexOf(want) === 0 || want.indexOf(t) === 0)) { first = d.id; return true; }
+        return false;
+      });
+      return first;
+    }, function () { return ''; });
+  }
+  // Each row's Tidal ID: its own, else by ISRC (20 at a time), else a search.
+  function resolve(items, type, label) {
+    var ids = items.map(function (it) { return it.id; }), byIsrc = [], i;
+    for (i = 0; i < items.length; i++) if (!ids[i] && items[i].isrc && type === 'tracks') byIsrc.push(i);
+    var k = 0;
+    function isrcs() {
+      if (k >= byIsrc.length) return Promise.resolve();
+      var part = byIsrc.slice(k, k + 20); k += 20;
+      libSay(label + ': matching by ISRC ' + Math.min(k, byIsrc.length) + ' of ' + byIsrc.length + '…');
+      return api('GET', '/tracks' + qs({ countryCode: libCountry(), 'filter[isrc]': part.map(function (n) { return items[n].isrc; }) })).then(function (j) {
+        var m = {}; (j.data || []).forEach(function (r) { if (r.attributes && r.attributes.isrc && !m[r.attributes.isrc]) m[r.attributes.isrc.toUpperCase()] = r.id; });
+        part.forEach(function (n) { ids[n] = m[items[n].isrc] || ''; });
+      }, function () {}).then(isrcs);
+    }
+    var s = 0, left;
+    function search() {
+      if (!left) left = items.map(function (_, n) { return n; }).filter(function (n) { return !ids[n] && items[n].title; });
+      if (s >= left.length) return Promise.resolve();
+      var n = left[s++];
+      libSay(label + ': searching ' + s + ' of ' + left.length + '…');
+      return findBySearch(items[n], type).then(function (id) { ids[n] = id; return libWait(150); }).then(search);
+    }
+    return isrcs().then(search).then(function () { return ids; });
+  }
+  function addAll(path, type, ids, meta, label) {
+    var i = 0;
+    function next() {
+      if (i >= ids.length) return Promise.resolve();
+      var part = ids.slice(i, i + 50); i += 50;
+      libSay(label + ': adding ' + Math.min(i, ids.length) + ' of ' + ids.length + '…');
+      var body = { data: part.map(function (id) { return { id: String(id), type: type }; }) };
+      if (meta) body.meta = meta;
+      return api('POST', path, body).then(next, function (e) {
+        if (!/^Tidal said 4/.test(e.message)) throw e;
+        // Tidal turned the batch down (a song it no longer has, say): one at a time, skipping those.
+        var k = 0;
+        return (function one() {
+          if (k >= part.length) return Promise.resolve();
+          var id = part[k++], b = { data: [{ id: String(id), type: type }] };
+          if (meta) b.meta = meta;
+          return api('POST', path, b).catch(function (e2) { if (!/^Tidal said 4/.test(e2.message)) throw e2; refused[id] = 1; }).then(one);
+        })().then(next);
+      });
+    }
+    var refused = {};
+    return next().then(function () { return refused; });
+  }
+  function importOne(f) {
+    var type = f.kind === 'albums' ? 'albums' : f.kind === 'artists' ? 'artists' : 'tracks';
+    var label = f.kind === 'playlist' ? f.base : 'My Collection ' + (type === 'tracks' ? 'songs' : type);
+    return resolve(f.items, type, label).then(function (ids) {
+      var found = [], rows = [], missing = [], seen = {}, dupes = 0, already = 0, have = {};
+      if (f.kind !== 'playlist') { // already in My Collection: Tidal's page has the list
+        try {
+          var fav = fairStore.getState().favorites, list = fav && fav[{ tracks: 'tracks', albums: 'albums', artists: 'artists' }[type]];
+          (Array.isArray(list) ? list : []).forEach(function (x) { have[String(x)] = 1; });
+        } catch (e) {}
+      }
+      ids.forEach(function (id, n) {
+        if (!id) { missing.push(f.items[n].row); return; }
+        id = String(id);
+        if (seen[id]) { dupes++; return; } // the same song twice in the file
+        seen[id] = 1;
+        if (have[id]) { already++; return; }
+        found.push(id); rows.push(f.items[n].row);
+      });
+      var done = function (refused) { // songs Tidal turned down count as not found
+        var added = 0;
+        found.forEach(function (id, n) { if (refused && refused[id]) missing.push(rows[n]); else added++; });
+        missing.sort(function (x, y) { return x - y; });
+        return { label: label, found: added, total: ids.length, missing: missing, dupes: dupes, already: already };
+      };
+      if (f.kind === 'playlist') {
+        libSay(label + ': creating the playlist…');
+        return api('POST', '/playlists', { data: { type: 'playlists', attributes: { name: f.base.slice(0, 100), description: '', accessType: 'UNLISTED' } } }).then(function (j) {
+          return addAll('/playlists/' + j.data.id + '/relationships/items', 'tracks', found, { onDuplicates: 'SKIP' }, label);
+        }).then(done);
+      }
+      var coll = { tracks: 'userCollectionTracks', albums: 'userCollectionAlbums', artists: 'userCollectionArtists' }[type];
+      return addAll('/' + coll + '/me/relationships/items', type, found, null, label).then(done);
+    });
+  }
+  W.libImport = function () {
+    var files = (LIB.files || []).filter(function (f) { return !f.error && f.items.length; });
+    if (!files.length || LIB.busy) return;
+    LIB.busy = true;
+    var i = 0, report = [];
+    (function next() {
+      if (i >= files.length) return Promise.resolve();
+      return importOne(files[i++]).then(function (r) { report.push(r); return next(); });
+    })().then(function () { return ''; }, function (e) { return ' Stopped: ' + e.message; }).then(function (err) {
+      LIB.files = null;
+      libSay(report.map(function (r) {
+        return r.label + ': ' + r.found + ' of ' + r.total + ' added' +
+          (r.dupes ? ', ' + r.dupes + (r.dupes === 1 ? ' duplicate' : ' duplicates') + ' skipped' : '') +
+          (r.already ? ', ' + r.already + ' already in My Collection skipped' : '') + (r.missing.length ? ' (not found: row' + (r.missing.length > 1 ? 's ' : ' ') + r.missing.slice(0, 15).join(', ') + (r.missing.length > 15 ? '…' : '') + ')' : '') + '.';
+      }).join(' ') + err);
+      LIB.busy = false;
+      libRender();
+    });
+  };
+  W.libFolder = function (ok, then) { // the app picked (or didn't) a folder to save into
+    if (!ok) { libSay('No folder picked.'); return; }
+    if (then === 'collection') W.libExportCollection(); else W.libExport();
+  };
+
+  // ---- The section in the Updates tab ----
+  function libRender() {
+    var u = LIB.ui;
+    if (!u || !u.box.isConnected) return;
+    u.box.innerHTML = '';
+    u.status.textContent = LIB.status;
+    u.statusRow.style.display = LIB.status ? '' : 'none';
+    if (LIB.files) { // the import, before it starts: what each file is and where it goes
+      LIB.files.forEach(function (f) {
+        var r = row(f.name, f.error ? 'Can’t import: ' + f.error + '.' : f.kind === 'playlist' ? 'A new playlist “' + f.base + '” with ' + f.items.length + ' songs'
+          : 'Adds ' + f.items.length + ' ' + ({ collection: 'song', albums: 'album', artists: 'artist' }[f.kind]) + (f.items.length === 1 ? '' : 's') + ' to My Collection');
+        u.box.appendChild(r);
+      });
+      var go = row('', ''), b = el('button', 'wv-btn', LIB.busy ? 'Importing…' : 'Start import'), cancel = el('button', 'wv-btn', 'Cancel');
+      go.querySelector('.wv-txt').remove();
+      b.type = cancel.type = 'button'; b.disabled = LIB.busy; cancel.style.marginLeft = '8px';
+      b.onclick = function () { W.libImport(); libRender(); };
+      cancel.onclick = function () { LIB.files = null; libRender(); };
+      go.style.justifyContent = 'flex-end'; go.appendChild(b); if (!LIB.busy) go.appendChild(cancel);
+      u.box.appendChild(go);
+      return;
+    }
+    if (!LIB.list) return;
+    var all = row('All playlists', LIB.list.length + ' playlists'), allB = el('input');
+    allB.type = 'checkbox'; allB.style.cssText = 'width:22px;height:22px;accent-color:#fff;flex:none';
+    allB.checked = LIB.list.every(function (p) { return LIB.picked[p.id]; });
+    allB.onchange = function () { LIB.list.forEach(function (p) { LIB.picked[p.id] = allB.checked; }); libRender(); };
+    all.appendChild(allB);
+    u.box.appendChild(all);
+    LIB.list.forEach(function (pl) {
+      var r = row(pl.name, pl.count === undefined ? '' : pl.count + (pl.count === 1 ? ' item' : ' items')), c = el('input');
+      c.type = 'checkbox'; c.style.cssText = allB.style.cssText; c.checked = !!LIB.picked[pl.id];
+      c.onchange = function () { LIB.picked[pl.id] = c.checked; libRender(); };
+      r.onclick = function (e) { if (e.target !== c) { c.checked = !c.checked; c.onchange(); } };
+      r.style.cursor = 'pointer';
+      r.appendChild(c);
+      u.box.appendChild(r);
+    });
+    var n = LIB.list.filter(function (p) { return LIB.picked[p.id]; }).length;
+    var go2 = row('', ''), ex = el('button', 'wv-btn', LIB.busy ? 'Exporting…' : 'Export ' + n + (n === 1 ? ' playlist' : ' playlists')), close = el('button', 'wv-btn', 'Close');
+    go2.querySelector('.wv-txt').remove();
+    ex.type = close.type = 'button'; ex.disabled = !n || LIB.busy; close.style.marginLeft = '8px';
+    ex.onclick = function () { try { WaveApp.libPickFolder('playlists'); } catch (e) {} };
+    close.onclick = function () { LIB.list = null; libRender(); };
+    go2.style.justifyContent = 'flex-end'; go2.appendChild(ex); if (!LIB.busy) go2.appendChild(close);
+    u.box.appendChild(go2);
+  }
+  function buildLibrary(p) {
+    var s = section('Playlists and My Collection');
+    var ep = row('Export playlists', 'Pick playlists; each is saved as its own spreadsheet file (CSV) in a folder you choose.'), epB = el('button', 'wv-btn', 'Choose');
+    epB.type = 'button';
+    epB.onclick = function () {
+      if (LIB.busy) return;
+      libSay('Getting your playlists…');
+      libPlaylists().then(function (l) { LIB.list = l; libSay(''); libRender(); }, function (e) { libSay('Couldn’t get your playlists: ' + e.message); });
+    };
+    ep.appendChild(epB);
+    var ec = row('Export My Collection', 'Your songs, albums and artists: three spreadsheet files (CSV).'), ecB = el('button', 'wv-btn', 'Export');
+    ecB.type = 'button'; ecB.onclick = function () { if (!LIB.busy) try { WaveApp.libPickFolder('collection'); } catch (e) {} };
+    ec.appendChild(ecB);
+    var im = row('Import', 'Playlist files become new playlists; collection-tracks, -albums and -artists files add to My Collection. Songs are found by Tidal ID, ISRC, or title and artist.'), imB = el('button', 'wv-btn', 'Import');
+    imB.type = 'button'; imB.onclick = function () { if (!LIB.busy) try { WaveApp.libOpen(); } catch (e) {} };
+    im.appendChild(imB);
+    var st = row('', ''); st.querySelector('.wv-t').remove(); st.sub.style.whiteSpace = 'pre-wrap';
+    var box = el('div');
+    box.style.cssText = 'display:flex;flex-direction:column';
+    var c = card([ep, ec, im]);
+    c.appendChild(box);
+    c.appendChild(st);
+    LIB.ui = { box: box, status: st.sub, statusRow: st };
+    s.appendChild(c);
+    p.appendChild(s);
+    libRender();
+  }
+  // The Wave tab's Single playback section: the switch, and what it can and can't do here.
+  function buildSingle(p) {
+    var ss = section('Single playback');
+    var sw = row('Single playback', 'Switching it on stops the song that\u2019s on and takes it back to the start, ready to play. Each song stops at its end. Max quality, Tidal\u2019s crossfade and loudness normalization off, Wave\u2019s fades off, full level from Tidal, and calls and notifications silenced. Everything goes back when it\u2019s switched off.');
+    sw.appendChild(toggle(W.single, function (v) { W.setSingle(v); setTimeout(show, 600); }));
+    var dnd = row('Silence calls and notifications', ''), dndB = el('button', 'wv-btn', 'Allow');
+    dndB.type = 'button'; dndB.onclick = function () { try { WaveApp.singleDnd(); } catch (e) {} };
+    dnd.appendChild(dndB);
+    var vol = row('Full level', '');
+    var fx = row('Android\u2019s sound effects', ''), fxB = el('button', 'wv-btn', 'Sound settings');
+    fxB.type = 'button'; fxB.onclick = function () { try { WaveApp.openSoundSettings(); } catch (e) {} };
+    fx.appendChild(fxB);
+    function show() {
+      var i = {};
+      try { i = JSON.parse(WaveApp.singleInfo()); } catch (e) {}
+      dnd.sub.textContent = i.dnd ? 'Do Not Disturb, alarms only, while Single playback is on (the music still plays).'
+        : 'Wave needs Do Not Disturb access for this' + (i.iadb ? ': one tap through iAdb.' : ': Allow opens Android\u2019s page for it.');
+      dndB.style.display = i.dnd ? 'none' : '';
+      vol.sub.textContent = 'Tidal plays at full level. ' + (i.fullOutput
+        ? 'Android\u2019s media volume goes to max on this output (' + (i.output || 'wired or USB') + '): set the loudness on the DAC or amp.'
+        : 'On ' + (i.output || 'this output') + ' Android\u2019s volume stays where you set it; it goes to max on a USB DAC, line out or wired headphones.');
+      var list = (i.effects || []).filter(function (n) { return !/visuali[sz]er/i.test(n); });
+      fx.sub.textContent = !i.dump ? 'Apps can\u2019t switch Android\u2019s or Samsung\u2019s effects (Dolby Atmos, equaliser, Adapt Sound) off. Grant the signal path\u2019s details (DUMP) to see which are on here.'
+        : list.length ? 'On now: ' + list.join(', ') + '. Apps can\u2019t switch these off: turn them off in Sound settings.' : 'None on that Wave can see.';
+    }
+    show();
+    var timer = setInterval(function () { if (!ss.isConnected) { clearInterval(timer); return; } show(); }, 3000);
+    ss.appendChild(card([sw, dnd, vol, fx]));
+    p.appendChild(ss);
+  }
+  // Backup (phone, Updates tab): export / import a settings file, and an automatic backup to a
+  // file picked once (on the phone, Google Drive, Proton Drive: wherever Android's picker offers).
+  function buildBackup(p) {
+    var sb = section('Backup');
+    var ex = row('Export settings', 'Save Wave\u2019s settings and stats to a file.'), exB = el('button', 'wv-btn', 'Export');
+    exB.type = 'button'; exB.onclick = function () { try { WaveApp.backup('export'); } catch (e) {} };
+    ex.appendChild(exB);
+    var im = row('Import settings', 'Load them from a file. Wave starts again with them (the music stops).'), imB = el('button', 'wv-btn', 'Import');
+    imB.type = 'button'; imB.onclick = function () { try { WaveApp.backup('import'); } catch (e) {} };
+    im.appendChild(imB);
+    var au = row('Automatic backup', ''), auSel = el('select', 'wv-sel');
+    [[0, 'Off'], [1, 'Daily'], [7, 'Weekly'], [30, 'Monthly']].forEach(function (o) {
+      var op = el('option', '', o[1]); op.value = String(o[0]); auSel.appendChild(op);
+    });
+    auSel.onchange = function () { try { WaveApp.backupEvery(Number(auSel.value)); } catch (e) {} setTimeout(show, 300); };
+    au.appendChild(auSel);
+    var fl = row('Backup file', ''), flB = el('button', 'wv-btn', 'Choose'), nowB = el('button', 'wv-btn', 'Back up now');
+    flB.type = 'button'; nowB.type = 'button';
+    nowB.style.marginLeft = '8px';
+    flB.onclick = function () { try { WaveApp.backup('pick'); } catch (e) {} };
+    nowB.onclick = function () { try { WaveApp.backup('now'); } catch (e) {} setTimeout(show, 1500); };
+    var btns = el('div'); btns.style.cssText = 'flex:none;display:flex';
+    btns.appendChild(flB); btns.appendChild(nowB);
+    fl.appendChild(btns);
+    function show() {
+      var b = {};
+      try { b = JSON.parse(WaveApp.backupInfo()); } catch (e) {}
+      if (document.activeElement !== auSel) auSel.value = String(b.every || 0);
+      au.sub.textContent = b.every ? 'Wave saves its settings to the backup file ' + ({ 1: 'every day', 7: 'every week', 30: 'every month' }[b.every] || '') + ', also when it\u2019s closed.'
+        : 'Off. Pick how often, then where: on the phone or a drive in Android\u2019s file picker (Google Drive, Proton Drive\u2026).';
+      var when = b.at ? 'Last backup ' + new Date(b.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) + '.' : 'No backup yet.';
+      fl.sub.textContent = b.file ? b.file + '. ' + (b.error || when) : 'None chosen yet.';
+      fl.sub.style.color = b.error ? '#ff8a80' : '';
+      nowB.style.display = b.file ? '' : 'none';
+      flB.textContent = b.file ? 'Change' : 'Choose';
+    }
+    show();
+    var timer = setInterval(function () { if (!sb.isConnected) { clearInterval(timer); return; } show(); }, 2000);
+    sb.appendChild(card([ex, im]));
+    sb.appendChild(card([au, fl]));
+    p.appendChild(sb);
+  }
   var ui = {};
   function buildPanel(which) {
     settingsCss();
@@ -1700,6 +2491,7 @@
     p.setAttribute('data-test', 'settings-page-' + which);
     if (which === 'visuals') { buildVisuals(p, info); buildDisplay(p, info); return p; }
     if (which === 'updates') { buildUpdates(p, info); return p; }
+    if (which === 'stats') { buildStats(p); return p; }
 
     var s1 = section('Shuffle'), fair = row('Fair shuffle',
       'With shuffle on, no song repeats until every song in the list has played. Holding the shuffle button switches it too.');
@@ -1722,6 +2514,8 @@
     ff.appendChild(toggle(info.funFacts !== false, function (v) { try { WaveApp.setSetting('funFacts', v ? 1 : 0); } catch (e) {} if (!v) { fact = null; hideFact(); } }));
     sf.appendChild(card([ff]));
     p.appendChild(sf);
+
+    if (info.phone) buildSingle(p);
 
     var ss = section('Sleep timer');
     var sleep = row('Sleep timer', ''), sleepSel = el('select', 'wv-sel');
@@ -1898,9 +2692,9 @@
     e.className = String(e.className).split(/\s+/).filter(function (c) { return !/_active_/.test(c); }).join(' ');
   }
   // Wave's tabs after Tidal's: Visuals (the analyzers, meters and text size), Wave (shuffle and
-  // crash reports) and Updates (updates, developer options, license).
-  var WAVE_TABS = [['visuals', 'Visuals'], ['wave', 'Wave'], ['updates', 'Updates']];
-  function isWaveTab(e) { return /^settings-tab--(wave|visuals|updates)$/.test(e.getAttribute('data-test') || ''); }
+  // crash reports), Stats (phone: listening stats) and Updates (updates, developer options, license).
+  var WAVE_TABS = [['visuals', 'Visuals'], ['wave', 'Wave'], ['stats', 'Stats'], ['updates', 'Updates']];
+  function isWaveTab(e) { return /^settings-tab--(wave|visuals|stats|updates)$/.test(e.getAttribute('data-test') || ''); }
   function showWave(which) {
     which = which || waveTab || 'wave';
     var page = document.querySelector('[data-test="settings-page"]'), tabs = tabRow();
@@ -1998,7 +2792,8 @@
     [null, 'Play in the background (foreground service, media playback)', 'Keeps the music playing with Wave in the background, with its notification showing.'],
     [null, 'Keep awake', 'So the music doesn\'t stop when the screen turns off.'],
     [null, 'Change audio settings', 'Also needed by Android\'s sound measurement for the analyzer and meters.'],
-    ['phone', 'See the network connection', 'Wi-Fi, mobile data or satellite, for the audio quality chosen for each.']
+    ['phone', 'See the network connection', 'Wi-Fi, mobile data or satellite, for the audio quality chosen for each.'],
+    ['phone', 'Do Not Disturb access (allowed by you, only for Single playback)', 'Silences calls and notifications (alarms still ring) while Single playback is on, and puts Do Not Disturb back as it was afterwards.']
   ];
   // What Wave adds to Tidal (the same list is in the README), before the permissions.
   var FEATURES = [
@@ -2081,6 +2876,7 @@
     var tabs = tabRow();
     if (!tabs) { if (wavePanel) hideWave(); return; }
     WAVE_TABS.forEach(function (t) {
+      if (t[0] === 'stats' && !W.phone) return; // Stats: phone only for now
       if (tabs.querySelector('[data-test="settings-tab--' + t[0] + '"]')) return;
       var about = tabs.querySelector('[data-test="settings-tab--about"]'), tab = about.cloneNode(true);
       tab.setAttribute('data-test', 'settings-tab--' + t[0]);
@@ -2134,7 +2930,7 @@
   //   (frequency labels just under the cover) and the VU and PEAK meters in its top corners;
   // - in the player bar, between the song and the buttons: a small solid analyzer while playing.
   // Each fades in with sound and out with silence. Settings: the Visuals tab.
-  var VZ = { cfg: { analyzerOn: true, labelsOn: true, vuOn: true, analyzerOpacity: 30, vuOpacity: 60, vuMatch: false, vuStyle: 0, miniMeters: false, vizAdaptive: true, anaAdaptive: true, vizColor: '#33C3F0' },
+  var VZ = { cfg: { analyzerOn: true, labelsOn: true, vuOn: true, analyzerOpacity: 30, vuOpacity: 60, vuMatch: false, vuStyle: 0, vuShowVu: true, anaGain: 0, miniMeters: false, vizAdaptive: true, anaAdaptive: true, vizColor: '#33C3F0', anaColor: '#33C3F0' },
     color: { cover: '#33C3F0', mini: '#33C3F0' }, cover: null, mini: null, wanted: false, lastMini: null, miniAt: 0 };
   try {
     var vinfo = JSON.parse(WaveApp.appInfo());
@@ -2142,9 +2938,12 @@
   } catch (e) {}
   W.setVizColor = function (which, hex) { VZ.color[which === 'mini' ? 'mini' : 'cover'] = hex; };
   W.vizConfig = function (k, v) { VZ.cfg[k] = v; };
-  // The analyzers' and the meters' colours: the album art's (adaptive, switched separately for
-  // each) or the one picked in the Visuals tab.
-  function vizColor(which, analyzer) { return (analyzer ? VZ.cfg.anaAdaptive : VZ.cfg.vizAdaptive) ? VZ.color[which] : VZ.cfg.vizColor; }
+  // The analyzers' and the meters' colours: the album art's (adaptive) or the one picked in the
+  // Visuals tab, each set separately.
+  function vizColor(which, analyzer) {
+    if (analyzer) return VZ.cfg.anaAdaptive ? VZ.color[which] : VZ.cfg.anaColor;
+    return VZ.cfg.vizAdaptive ? VZ.color[which] : VZ.cfg.vizColor;
+  }
   var FLOOR = -50, LABEL_HZ = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000], LABELS = ['50', '100', '200', '500', '1k', '2k', '5k', '10k', '20k'];
   function vizBars(n) {
     var b = { n: n, shown: [], peak: [], peakAt: [], level: 0 };
@@ -2180,8 +2979,9 @@
   // Bars rise at once and fall smoothly; a peak marker holds briefly.
   function stepBars(b, target, dt, now, hearing) {
     b.level = hearing ? Math.min(1, b.level + dt / 0.4) : Math.max(0, b.level - dt / 0.6);
+    var gain = VZ.cfg.anaGain || 0; // Analyzer level (dB): every bar up or down together, at most to the top
     for (var i = 0; i < b.n; i++) {
-      var t = target && target[i] !== undefined ? target[i] : FLOOR;
+      var t = target && target[i] !== undefined ? Math.min(0, Math.max(FLOOR, target[i] + gain)) : FLOOR;
       b.shown[i] = t >= b.shown[i] ? t : Math.max(t, b.shown[i] - 45 * dt);
       if (b.shown[i] >= b.peak[i]) { b.peak[i] = b.shown[i]; b.peakAt[i] = now; }
       else if (now - b.peakAt[i] > 400) b.peak[i] = Math.max(b.shown[i], b.peak[i] - 25 * dt);
@@ -2232,17 +3032,30 @@
     x.fillText('BT', left, base);
     x.restore();
   }
-  function drawMeter(x, m, left, top, w, h, color, alpha, digital) {
+  // classic (Analog 2): a warm, backlit cream face with black print and a black needle, like a
+  // classic hardware VU meter. Otherwise (Analog 1) a dark glass face in the cover's colour.
+  function drawMeter(x, m, left, top, w, h, color, alpha, digital, classic) {
     if (alpha < 0.004) return;
+    classic = classic && !digital;
     x.save();
     x.globalAlpha = alpha;
     x.beginPath();
     if (x.roundRect) x.roundRect(left, top, w, h, 6); else x.rect(left, top, w, h);
-    x.fillStyle = 'rgba(0,0,0,.55)';
-    x.fill();
-    x.strokeStyle = 'rgba(255,255,255,.25)';
-    x.lineWidth = 0.75;
-    x.stroke();
+    if (classic) {
+      var face = x.createRadialGradient(left + w / 2, top + h * 0.95, h * 0.1, left + w / 2, top + h * 0.6, w * 0.75);
+      face.addColorStop(0, '#FFF6D8'); face.addColorStop(0.6, '#F1E2B4'); face.addColorStop(1, '#D9C48E');
+      x.fillStyle = face;
+      x.fill();
+      x.strokeStyle = 'rgba(40,28,10,.75)';
+      x.lineWidth = Math.max(1.5, h * 0.03);
+      x.stroke();
+    } else {
+      x.fillStyle = 'rgba(0,0,0,.55)';
+      x.fill();
+      x.strokeStyle = 'rgba(255,255,255,.25)';
+      x.lineWidth = 0.75;
+      x.stroke();
+    }
     x.clip();
     var marks = m.kind === 'VU' ? [-20, -10, -7, -5, -3, -1, 0, 1, 2, 3] : [-40, -30, -20, -10, -6, -3, 0, 3];
     // PEAK goes red only past 0 dBFS: the phone's output (after its volume) went over full scale and clipped.
@@ -2279,10 +3092,18 @@
       });
     } else {
       var S = 40 * Math.PI / 180, cx = left + w / 2, cy = top + h * 1.15, r = h * 0.92, ts2 = Math.max(7, h * 0.13);
+      var ink = classic ? '#1E1A12' : 'rgba(255,255,255,.8)', red = classic ? '#C4231C' : RED;
+      if (classic) { // the scale's printed baseline
+        x.beginPath();
+        x.arc(cx, cy, r, -Math.PI / 2 - S, -Math.PI / 2 - S + 2 * S * redFrom);
+        x.strokeStyle = ink;
+        x.lineWidth = Math.max(1, h * 0.012);
+        x.stroke();
+      }
       x.beginPath();
       x.arc(cx, cy, r, -Math.PI / 2 - S + 2 * S * redFrom, -Math.PI / 2 + S);
-      x.strokeStyle = RED;
-      x.lineWidth = Math.max(2, h * 0.035);
+      x.strokeStyle = red;
+      x.lineWidth = Math.max(2, h * (classic ? 0.05 : 0.035));
       x.stroke();
       x.font = '500 ' + ts2 + 'px sans-serif';
       x.textAlign = 'center';
@@ -2290,24 +3111,40 @@
       marks.forEach(function (v) {
         var a = -S + 2 * S * place(m.kind, v), sx = Math.sin(a), sy = -Math.cos(a);
         var major = m.kind === 'VU' ? [-20, -5, 0, 3].indexOf(v) >= 0 : [-40, -20, -10, 0].indexOf(v) >= 0, inn = r - (major ? h * 0.12 : h * 0.07);
-        x.strokeStyle = isRed(v) ? RED : 'rgba(255,255,255,.8)';
-        x.lineWidth = 0.9;
+        x.strokeStyle = isRed(v) ? red : ink;
+        x.lineWidth = classic ? 1.2 : 0.9;
         x.beginPath(); x.moveTo(cx + sx * inn, cy + sy * inn); x.lineTo(cx + sx * r, cy + sy * r); x.stroke();
         if (major) {
           var tr = r - h * 0.22;
-          x.fillStyle = 'rgba(255,255,255,.8)';
+          x.fillStyle = classic && isRed(v) ? red : ink;
           x.fillText((v > 0 ? '+' : '') + v, cx + sx * tr, cy + sy * tr + ts2 * 0.35);
         }
       });
-      x.textAlign = 'left';
-      x.font = '500 ' + ts2 * 0.95 + 'px sans-serif';
-      x.fillStyle = 'rgba(255,255,255,.8)';
-      x.fillText(m.kind, left + h * 0.1, top + h - ts2 * 0.55);
-      btNote(x, left + h * 0.1 + x.measureText(m.kind + ' ').width, top + h - ts2 * 0.55, ts2 * 0.8);
+      if (classic) { // the name printed in the middle of the face
+        x.textAlign = 'center';
+        x.font = '700 ' + ts2 * 1.15 + 'px serif';
+        x.fillStyle = ink;
+        x.fillText(m.kind, left + w * 0.2, top + h * 0.86);
+        btNote(x, left + w * 0.2 + x.measureText(m.kind).width / 2 + 4, top + h * 0.86, ts2 * 0.8);
+      } else {
+        x.textAlign = 'left';
+        x.font = '500 ' + ts2 * 0.95 + 'px sans-serif';
+        x.fillStyle = 'rgba(255,255,255,.8)';
+        x.fillText(m.kind, left + h * 0.1, top + h - ts2 * 0.55);
+        btNote(x, left + h * 0.1 + x.measureText(m.kind + ' ').width, top + h - ts2 * 0.55, ts2 * 0.8);
+      }
       var na = -S + 2 * S * m.pos, nx = Math.sin(na), ny = -Math.cos(na);
-      x.strokeStyle = color;
-      x.lineWidth = 1.6;
+      x.strokeStyle = classic ? '#121010' : color;
+      x.lineWidth = classic ? 1.3 : 1.6;
       x.beginPath(); x.moveTo(cx + nx * h * 0.45, cy + ny * h * 0.45); x.lineTo(cx + nx * (r + h * 0.02), cy + ny * (r + h * 0.02)); x.stroke();
+      if (classic) { // the needle's pivot cover along the bottom
+        var hood = x.createLinearGradient(0, top + h * 0.86, 0, top + h);
+        hood.addColorStop(0, '#3A3326'); hood.addColorStop(1, '#14110B');
+        x.fillStyle = hood;
+        x.beginPath();
+        x.ellipse(cx, top + h, w * 0.22, h * 0.14, 0, Math.PI, 2 * Math.PI);
+        x.fill();
+      }
     }
     x.restore();
   }
@@ -2329,7 +3166,7 @@
     d.f += ((on ? 1 : 0) - d.f) * (1 - Math.exp(-dt / 0.25));
     return d.f;
   }
-  function drawDeck(x, d, left, top, w, h, alpha, now, panel, VFD) {
+  function drawDeck(x, d, left, top, w, h, alpha, now, panel, VFD, onlyPk) {
     if (alpha < 0.004) return;
     x.save();
     x.globalAlpha = alpha;
@@ -2348,12 +3185,15 @@
     var nameW = Math.max(x.measureText('VU').width, x.measureText('PK').width) + pad * 0.8, overW = x.measureText('OVER').width;
     var sl = left + pad + nameW, sr = left + w - pad, dbs = (sr - sl) / (DECK_DB.length + 1) >= 4 ? DECK_DB : DECK_SMALL, N = dbs.length + 1, gap = Math.max(1, (sr - sl) / N * 0.22);
     var segW = (sr - sl - gap * (N - 1)) / N;
-    var barH = scale ? h * 0.2 : (h - pad * 2 - pad * 0.6) / 2;
-    var rows = scale ? [top + pad, top + h - pad - barH] : [top + pad, top + h - pad - barH];
+    // Both rows (VU above, PK below, the scale between), or the PK row alone (the VU meter off),
+    // its scale under it.
+    var barH = onlyPk ? (scale ? h * 0.32 : h - pad * 2) : scale ? h * 0.2 : (h - pad * 2 - pad * 0.6) / 2;
+    var rows = onlyPk ? [top + pad] : [top + pad, top + h - pad - barH];
     var over = now - d.overAt < 1000, holdI = -1, i;
     for (i = 0; i < dbs.length; i++) if (d.hold >= dbs[i]) holdI = i;
     x.shadowColor = VFD;
     rows.forEach(function (ry, ri) {
+      if (onlyPk) ri = 1;
       x.shadowBlur = 0;
       x.fillStyle = VFD;
       x.globalAlpha = alpha * 0.9;
@@ -2372,10 +3212,10 @@
     if (scale) { // the numbers between the bars, each under its own segment
       x.shadowBlur = 0;
       x.globalAlpha = alpha * 0.85;
-      btNote(x, left + pad * 0.6, top + h / 2 + ts * 0.32, ts * 0.75);
+      var my = onlyPk ? top + pad + barH + ts * 1.15 : top + h / 2 + ts * 0.32, lastRight = -1e9;
+      btNote(x, left + pad * 0.6, my, ts * 0.75);
       x.font = '500 ' + ts * 0.9 + 'px sans-serif';
       x.textAlign = 'center';
-      var my = top + h / 2 + ts * 0.32, lastRight = -1e9;
       var overX = sl + (N - 1) * (segW + gap) + segW / 2, overL = Math.min(overX - overW / 2, sr - overW);
       DECK_LABELS.forEach(function (v) {
         if (dbs.indexOf(v) < 0) return;
@@ -2522,12 +3362,13 @@
         if (cfg.vuStyle === 2) { // Deck: one display across the top, L above R
           if (!cv.deck) cv.deck = deckMeter();
           stepDeck(cv.deck, pk, dt, now, hearing, rms);
-          drawDeck(x, cv.deck, inset, my, aw - inset * 2, Math.max(44, Math.min(80, aw * 0.15)), va, now, true, vizColor('cover'));
+          var dh = Math.max(44, Math.min(80, aw * 0.15)), pkOnly = cfg.vuShowVu === false;
+          drawDeck(x, cv.deck, inset, my, aw - inset * 2, pkOnly ? Math.max(42, dh * 0.75) : dh, va, now, true, vizColor('cover'), pkOnly);
         } else {
           stepMeter(cv.vu, rms, pk, dt, now, hearing);
           stepMeter(cv.pk, rms, pk, dt, now, hearing);
-          drawMeter(x, cv.vu, inset, my, mw, mh, vizColor('cover'), va, cfg.vuStyle === 1);
-          drawMeter(x, cv.pk, aw - inset - mw, my, mw, mh, vizColor('cover'), va, cfg.vuStyle === 1);
+          if (cfg.vuShowVu !== false) drawMeter(x, cv.vu, inset, my, mw, mh, vizColor('cover'), va, cfg.vuStyle === 1, cfg.vuStyle === 3);
+          drawMeter(x, cv.pk, aw - inset - mw, my, mw, mh, vizColor('cover'), va, cfg.vuStyle === 1, cfg.vuStyle === 3);
         }
       }
     } else if (cv) {
@@ -2545,7 +3386,7 @@
       mv.canvas.style.left = (r[0] - fr.left - footer.clientLeft) + 'px';
       mv.canvas.style.top = (r[1] - fr.top - footer.clientTop) + 'px';
       var mx = fit(mv.canvas, r[2], r[3]);
-      if (cfg.miniMeters) drawDeck(mx, mv.m, 0, 0, r[2], r[3], stepDeck(mv.m, pk, dt, now, hearing && playing, rms), now, false, vizColor('mini'));
+      if (cfg.miniMeters) drawDeck(mx, mv.m, 0, 0, r[2], r[3], stepDeck(mv.m, pk, dt, now, hearing && playing, rms), now, false, vizColor('mini'), cfg.vuShowVu === false);
       else {
         var mf = stepBars(mv.bars, miniDb, dt, now, hearing && playing);
         if (mf > 0.003) drawBars(mx, mv.bars, 0, 0, r[2], r[3], vizColor('mini', true), mf);
@@ -2667,11 +3508,136 @@
   // Back (the phone's back button or gesture): the full-screen player closes, as its own close
   // button does. Says whether it did (otherwise the app goes back a page).
   W.back = function () {
+    if (chainBox) { W.hideChain(); return true; } // the signal-path panel first
     if (!((fairStore && playerOpen()) || playerTabsShown())) return false;
     var close = document.querySelector('[data-test="new-now-playing-close"]');
     if (!close) return false;
     close.click();
     return true;
+  };
+
+  // ---------- Signal path: the audio chain, from Tidal's stream to the output ----------
+  // Opened by tapping the quality line under the album art. Tidal's side from its own state
+  // (playbackControls.playbackContext, settings.audioNormalization), Wave's soft pause, and the
+  // system's side from the app (AudioChain: Android's mixer rate, volume, output; with the DUMP
+  // permission granted over ADB also the hardware format, sound effects and Bluetooth codec).
+  // Green: passes the sound on untouched. Amber: changes it. Grey: just so you know.
+  var chainBox = null, chainTimer = 0, iadbBusy = false;
+  W.iadbResult = function () { iadbBusy = false; setTimeout(renderChain, 1500); }; // a granted DUMP shows on the next read
+  function khz(hz) { return (Math.round(hz / 100) / 10) + ' kHz'; }
+  function chainSteps() {
+    var sys = {}, pc = {}, norm = null;
+    try { sys = JSON.parse(WaveApp.audioChain()) || {}; } catch (e) {}
+    try { fairAttach(); var st = fairStore.getState(); pc = (st.playbackControls && st.playbackControls.playbackContext) || {}; norm = st.settings && st.settings.audioNormalization; } catch (e) {}
+    var steps = [], sr = pc.sampleRate || 0;
+    steps.push({ t: 'Tidal stream', d: sys.quality || [pc.codec, pc.bitDepth && pc.bitDepth + '-bit', sr && khz(sr)].filter(Boolean).join(' · ') || 'Nothing playing', k: 'info' });
+    var n = String(norm || '').toUpperCase();
+    steps.push(!n || n === 'NONE' || n === 'OFF' || n === 'FALSE'
+      ? { t: 'Volume levelling (Tidal)', d: 'Off: the song plays at its own level', k: 'ok' }
+      : { t: 'Volume levelling (Tidal)', d: 'On, per ' + (n === 'ALBUM' ? 'album' : n === 'TRACK' ? 'song' : n.toLowerCase()) + ': Tidal turns the volume up or down to even out levels', k: 'warn' });
+    steps.push({ t: 'Decoding', d: 'Tidal\'s web player (inside Android\'s web view) decodes the stream to plain audio', k: 'ok' });
+    var soft = true;
+    try { soft = localStorage.getItem('wave.softPause') !== '0'; } catch (e) {}
+    steps.push({ t: 'Soft pause (Wave)', d: soft ? 'Fades out when pausing and in when playing; full volume in between' : 'Off', k: 'info' });
+    var mix = sys.mixerRate || 0, mixD = [];
+    if (mix && sr) mixD.push(mix === sr ? 'Mixes at ' + khz(mix) + ', the song\'s own rate: not resampled' : 'Resampled from ' + khz(sr) + ' to ' + khz(mix));
+    else if (mix) mixD.push('Mixes at ' + khz(mix));
+    if (sys.volPct !== undefined) mixD.push('Volume ' + sys.volPct + '%' + (sys.volDb !== undefined ? ' (' + (sys.volDb > 0 ? '+' : '') + sys.volDb + ' dB)' : ''));
+    if (sys.dump && sys.halRate) mixD.push('Hardware runs at ' + khz(sys.halRate) + (sys.halFormat ? ', ' + sys.halFormat.toLowerCase().replace('pcm ', '') : ''));
+    var fx = sys.effects && sys.effects.length;
+    if (sys.dump && sys.effects) mixD.push(fx ? 'Sound effects on: ' + sys.effects.join(', ') : 'No sound effects switched on');
+    else if (!sys.dump) mixD.push('Sound effects: not visible without the DUMP permission');
+    steps.push({ t: 'Android mixer', d: mixD.join('\n'), k: (mix && sr && mix !== sr) || fx ? 'warn' : 'ok' });
+    var dev = sys.device || {}, out = [dev.type || 'Output'];
+    if (dev.name && dev.name !== 'null' && dev.name !== dev.type) out[0] += ' (' + dev.name + ')';
+    if (/bluetooth/i.test(dev.type || '')) out.push(sys.btCodec ? 'Codec: ' + sys.btCodec + (sys.btRate ? ', ' + sys.btRate : '') : sys.dump ? 'Codec: not found' : 'Codec: not visible without the DUMP permission');
+    if (dev.rates && dev.rates.length && /USB|HDMI|Digital/i.test(dev.type || '')) {
+      var lo = Math.min.apply(null, dev.rates), hi = Math.max.apply(null, dev.rates);
+      out.push('Takes ' + (lo === hi ? khz(lo) : khz(lo) + ' to ' + khz(hi)));
+    }
+    steps.push({ t: 'Output', d: out.join('\n'), k: /bluetooth/i.test(dev.type || '') ? 'warn' : 'info' });
+    return { steps: steps, sys: sys, sr: sr, mix: mix };
+  }
+  function renderChain() {
+    if (!chainBox) return;
+    var c = chainSteps(), list = chainBox.querySelector('[data-chain-list]');
+    list.textContent = '';
+    var COL = { ok: '#3DD68C', warn: '#FFB224', info: 'rgba(255,255,255,.45)' };
+    c.steps.forEach(function (s, i) {
+      var row = document.createElement('div'), dot = document.createElement('div'), txt = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:12px;position:relative;padding:0 0 14px';
+      dot.style.cssText = 'flex:none;width:12px;height:12px;border-radius:50%;margin-top:4px;background:' + COL[s.k] + ';box-shadow:0 0 8px ' + COL[s.k];
+      if (i < c.steps.length - 1) {
+        var line = document.createElement('div');
+        line.style.cssText = 'position:absolute;left:5px;top:18px;bottom:0;width:2px;background:rgba(255,255,255,.12)';
+        row.appendChild(line);
+      }
+      var t = document.createElement('div'), d = document.createElement('div');
+      t.textContent = s.t; t.style.cssText = 'font-weight:700;font-size:14px';
+      d.textContent = s.d; d.style.cssText = 'white-space:pre-line;color:rgba(255,255,255,.72);font-size:12.5px;margin-top:2px';
+      txt.appendChild(t); txt.appendChild(d);
+      row.appendChild(dot); row.appendChild(txt);
+      list.appendChild(row);
+    });
+    var foot = chainBox.querySelector('[data-chain-foot]');
+    // What Chrome's resampling does, measured (Chromium 153's 44.1 -> 48 kHz with test tones):
+    // flat to 15 kHz, -0.7 dB at 18 kHz, -4.4 at 19.5, -6.9 at 20; what it adds sits about 81 dB
+    // below the music (a 16-bit file's own noise floor is about 92 dB below).
+    var rs = c.sr && c.mix && c.sr !== c.mix
+      ? '\n\nThis song is resampled by Chrome (' + khz(c.sr) + ' to ' + khz(c.mix) + '). Measured on Chrome\'s resampler: ' +
+        'up to 15 kHz the music comes out unchanged; the very top is a little quieter (about 0.7 dB at 18 kHz, 4 dB at 19.5 kHz, 7 dB at 20 kHz, ' +
+        'above what most adults hear); and what it adds sits about 80 dB below the music, close to a 16-bit file\'s own noise floor and inaudible.'
+      : c.sr && c.mix ? '\n\nThis song isn\'t resampled: it\'s already at ' + khz(c.mix) + ', Android\'s rate.' : '';
+    foot.textContent = 'Not bit-perfect: Tidal\'s web player always plays through Android\'s mixer.' + rs;
+    if (!c.sys.dump) {
+      var ia = {};
+      try { ia = JSON.parse(WaveApp.iadb()) || {}; } catch (e) {}
+      var more = document.createElement('div');
+      more.style.cssText = 'margin-top:10px';
+      more.textContent = 'More detail (sound effects, the hardware\'s format, the Bluetooth codec) needs the DUMP permission. ' +
+        (ia.installed ? 'iAdb can grant it here, in one tap (Wireless debugging on).' : 'Grant it once with an ADB app on the phone (like iAdb) or from a computer:') +
+        '\nadb shell pm grant ' + (c.sys.app || 'com.wave.mobile') + ' android.permission.DUMP';
+      foot.appendChild(more);
+      if (ia.installed) {
+        var g = document.createElement('button');
+        g.type = 'button';
+        g.textContent = iadbBusy ? 'Waiting for iAdb…' : 'Grant with iAdb';
+        g.disabled = iadbBusy;
+        g.style.cssText = 'margin-top:10px;border:0;border-radius:18px;padding:9px 16px;background:#fff;color:#000;font:700 13px sans-serif';
+        g.onclick = function () { iadbBusy = true; renderChain(); try { WaveApp.iadbGrant(); } catch (e) { iadbBusy = false; } };
+        foot.appendChild(g);
+      }
+    }
+  }
+  W.showChain = function () {
+    if (chainBox) { W.hideChain(); return; }
+    var bg = chainBox = document.createElement('div');
+    bg.setAttribute('data-wave', 'chain');
+    bg.style.cssText = 'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center';
+    var card = document.createElement('div');
+    card.style.cssText = 'box-sizing:border-box;width:100%;max-width:520px;max-height:85vh;overflow:auto;background:#141417;color:#fff;' +
+      'border-radius:18px 18px 0 0;padding:18px 18px 22px;font:500 13px/1.45 sans-serif;box-shadow:0 -6px 30px rgba(0,0,0,.5)';
+    var head = document.createElement('div'), h = document.createElement('div'), x = document.createElement('button');
+    head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:14px';
+    h.textContent = 'Signal path'; h.style.cssText = 'font-weight:700;font-size:17px';
+    x.textContent = '✕'; x.type = 'button'; x.setAttribute('aria-label', 'Close');
+    x.style.cssText = 'border:0;background:#26262b;color:#fff;border-radius:50%;width:32px;height:32px;font-size:14px';
+    x.onclick = function () { W.hideChain(); };
+    head.appendChild(h); head.appendChild(x);
+    var list = document.createElement('div'); list.setAttribute('data-chain-list', '');
+    var foot = document.createElement('div'); foot.setAttribute('data-chain-foot', '');
+    foot.style.cssText = 'white-space:pre-line;margin-top:6px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08);color:rgba(255,255,255,.5);font-size:11.5px;user-select:text';
+    card.appendChild(head); card.appendChild(list); card.appendChild(foot);
+    bg.appendChild(card);
+    bg.addEventListener('click', function (e) { if (e.target === bg) W.hideChain(); });
+    document.documentElement.appendChild(bg);
+    renderChain();
+    chainTimer = setInterval(renderChain, 2000); // the volume, the output and the song can change
+  };
+  W.hideChain = function () {
+    clearInterval(chainTimer);
+    if (chainBox && chainBox.parentNode) chainBox.parentNode.removeChild(chainBox);
+    chainBox = null;
   };
 
   // ---------- Fun facts: a card on the album art ----------

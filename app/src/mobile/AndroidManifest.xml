@@ -4,12 +4,23 @@
     xmlns:tools="http://schemas.android.com/tools">
     <!-- The media notification (Android 13+ asks before showing notifications). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Single playback: Do Not Disturb (alarms only) while it's on; Android asks the listener first. -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <!-- Which network is in use, for the separate Wi-Fi and mobile data audio quality. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Optional, granted only over ADB (adb shell pm grant com.wave.mobile android.permission.DUMP):
+         the signal-path panel then reads Android's audio and Bluetooth reports (real output format,
+         sound effects switched on, Bluetooth codec). Without it the panel shows the basics. -->
+    <uses-permission android:name="android.permission.DUMP" tools:ignore="ProtectedPermissions" />
+    <!-- iAdb's own permission: how iAdb finds the apps to hand its connection to (IadbGrant). Its
+         Allow / Deny prompt is what actually lets Wave use it. -->
+    <uses-permission android:name="com.iadb.helper.permission.API" />
     <!-- To read Android Auto's connection state (for playing on by itself when the car connects). -->
     <queries>
         <package android:name="com.google.android.projection.gearhead" />
         <provider android:authorities="androidx.car.app.connection" />
+        <!-- iAdb (ADB on the phone itself), for the one-tap DUMP grant. -->
+        <package android:name="com.iadb.helper" />
     </queries>
     <application>
         <meta-data android:name="com.google.android.gms.car.application"
@@ -26,6 +37,17 @@
             <meta-data android:name="com.samsung.android.support.REMOTE_ACTION"
                 android:resource="@xml/spen_actions" />
         </activity>
+        <!-- Where iAdb hands over its connection (IadbGrant). Only iAdb's server, running as the
+             shell, can call it (INTERACT_ACROSS_USERS_FULL is a permission the shell has). -->
+        <provider android:name=".IadbGrant$Provider"
+            android:authorities="${applicationId}.iadb"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL"
+            android:exported="true"
+            android:multiprocess="false"
+            android:enabled="true" />
+        <!-- Settings backup (the Updates tab): Android runs it on the schedule picked there. -->
+        <service android:name=".Backup$Job" android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
         <service android:name=".WaveMediaService" android:exported="true"
             tools:ignore="ExportedService">
             <intent-filter>
