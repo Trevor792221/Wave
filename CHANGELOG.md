@@ -5,6 +5,7 @@ Every test build and probe on this branch, newest first, with what changed in it
 ## Nov 13
 
 - **Probe 12** · Wave Probe 10 · [`12-wave-probe-10.apk`](probes/12-wave-probe-10.apk): Records Tidal's playlist and My Collection requests (path, field names and shapes only; no token, titles or ids), for playlist export / import
+- **Test 160** · Wave Mobile Beta 1.2.3 · [`160-wave-mobile-beta-1.2.3-playlists-fix.apk`](beta/160-wave-mobile-beta-1.2.3-playlists-fix.apk): Playlists / My Collection: fixes Tidal's 400 on include (comma), retries when Tidal can't be reached, uses only the API's sign-in, errors name the step
 - **Test 159** · Wave Mobile Beta 1.2.3 · [`159-wave-mobile-beta-1.2.3-playlists-csv.apk`](beta/159-wave-mobile-beta-1.2.3-playlists-csv.apk): Updates tab → Playlists and My Collection: export ticked playlists (one CSV each) and My Collection (3 CSVs); import CSVs as new playlists / into My Collection (by Tidal ID, ISRC or search). Built on 158
 - **Test 158** · Wave Mobile Beta 1.2.3 · [`158-wave-mobile-beta-1.2.3-settings-backup.apk`](beta/158-wave-mobile-beta-1.2.3-settings-backup.apk): Updates tab → Backup: export / import settings, automatic daily / weekly / monthly backup to a picked file (phone, Google Drive, Proton Drive)
 - **Test 157** · Wave Mobile Beta 1.2.3 · [`157-wave-mobile-beta-1.2.3-volume-undone.apk`](beta/157-wave-mobile-beta-1.2.3-volume-undone.apk): Fine volume steps removed again (as 155)
