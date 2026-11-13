@@ -146,6 +146,7 @@
 | `144-wave-mobile-beta-1.2.3-signal-path.apk` | Nov 12 | Signal path: tap the quality line for the audio chain (Tidal stream, levelling, decoding, soft pause, Android mixer, output); more with the DUMP permission granted over ADB |
 | `145-wave-mobile-beta-1.2.3-iadb-grant.apk` | Nov 13 | Signal path: "Grant with iAdb" grants the DUMP permission in one tap through iAdb (written by hand, no libraries) |
 | `146-wave-mobile-beta-1.2.3-iadb-permission.apk` | Nov 13 | Grant with iAdb: Wave now declares iAdb's own permission (how iAdb finds apps to connect to); Output names more device types and shows the volume in dB |
+| `147-wave-mobile-beta-1.2.3-resampling-note.apk` | Nov 13 | Signal path: the note says what Chrome's resampling does to the song (measured: unchanged to 15 kHz, top end a few dB quieter, added error ~80 dB below the music) |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
