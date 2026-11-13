@@ -169,6 +169,8 @@
 | `167-wave-beta-2.1.5-tv-stats-single.apk` | Nov 13 | TV: Stats tab (with blocked counter), Single playback (HDMI keeps its volume; Do Not Disturb only where the TV has it), plus the meter styles, Analyzer level and separate colours from Mobile 1.2.4 |
 | `168-wave-mobile-beta-1.2.4-features-list.apk` | Nov 13 | About tab: features list updated (Signal path, Single playback, spreadsheets, backup, stats; meters and analyzers) |
 | `169-wave-beta-2.1.5-features-list.apk` | Nov 13 | TV: the same features list, with 167's Stats and Single playback |
+| `170-wave-mobile-beta-1.2.4-loading-waves.apk` | Nov 13 | Wave's own loading screen (three moving waves, option E) instead of Tidal's logo |
+| `171-wave-beta-2.1.5-loading-waves.apk` | Nov 13 | TV: the same loading screen |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner

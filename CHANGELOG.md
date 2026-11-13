@@ -5,6 +5,8 @@ Every test build and probe on this branch, newest first, with what changed in it
 ## Nov 13
 
 - **Probe 12** · Wave Probe 10 · [`12-wave-probe-10.apk`](probes/12-wave-probe-10.apk): Records Tidal's playlist and My Collection requests (path, field names and shapes only; no token, titles or ids), for playlist export / import
+- **Test 171** · Wave for TV Beta 2.1.5 · [`171-wave-beta-2.1.5-loading-waves.apk`](beta/171-wave-beta-2.1.5-loading-waves.apk): TV: the same loading screen
+- **Test 170** · Wave Mobile Beta 1.2.4 · [`170-wave-mobile-beta-1.2.4-loading-waves.apk`](beta/170-wave-mobile-beta-1.2.4-loading-waves.apk): Wave's own loading screen (three moving waves, option E) instead of Tidal's logo
 - **Test 169** · Wave for TV Beta 2.1.5 · [`169-wave-beta-2.1.5-features-list.apk`](beta/169-wave-beta-2.1.5-features-list.apk): TV: the same features list, with 167's Stats and Single playback
 - **Test 168** · Wave Mobile Beta 1.2.4 · [`168-wave-mobile-beta-1.2.4-features-list.apk`](beta/168-wave-mobile-beta-1.2.4-features-list.apk): About tab: features list updated (Signal path, Single playback, spreadsheets, backup, stats; meters and analyzers)
 - **Test 167** · Wave for TV Beta 2.1.5 · [`167-wave-beta-2.1.5-tv-stats-single.apk`](beta/167-wave-beta-2.1.5-tv-stats-single.apk): TV: Stats tab (with blocked counter), Single playback (HDMI keeps its volume; Do Not Disturb only where the TV has it), plus the meter styles, Analyzer level and separate colours from Mobile 1.2.4
