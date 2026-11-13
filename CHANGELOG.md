@@ -4,6 +4,8 @@ Every test build and probe on this branch, newest first, with what changed in it
 
 ## Nov 13
 
+- **Test 149** · Wave for TV Beta 2.1.5 · [`149-wave-beta-2.1.5-meter-styles.apk`](beta/149-wave-beta-2.1.5-meter-styles.apk): TV: the same meter styles and VU meter switch
+- **Test 148** · Wave Mobile Beta 1.2.3 · [`148-wave-mobile-beta-1.2.3-meter-styles.apk`](beta/148-wave-mobile-beta-1.2.3-meter-styles.apk): Meter styles Analog 1, Analog 2 (new: classic backlit cream VU face), Digital 1, Digital 2 (was Deck); a VU meter switch (off: the peak meter only)
 - **Test 147** · Wave Mobile Beta 1.2.3 · [`147-wave-mobile-beta-1.2.3-resampling-note.apk`](beta/147-wave-mobile-beta-1.2.3-resampling-note.apk): Signal path: the note says what Chrome's resampling does to the song (measured: unchanged to 15 kHz, top end a few dB quieter, added error ~80 dB below the music)
 - **Test 146** · Wave Mobile Beta 1.2.3 · [`146-wave-mobile-beta-1.2.3-iadb-permission.apk`](beta/146-wave-mobile-beta-1.2.3-iadb-permission.apk): Grant with iAdb: Wave now declares iAdb's own permission (how iAdb finds apps to connect to); Output names more device types and shows the volume in dB
 - **Test 145** · Wave Mobile Beta 1.2.3 · [`145-wave-mobile-beta-1.2.3-iadb-grant.apk`](beta/145-wave-mobile-beta-1.2.3-iadb-grant.apk): Signal path: "Grant with iAdb" grants the DUMP permission in one tap through iAdb (written by hand, no libraries)
