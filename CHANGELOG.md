@@ -4,6 +4,7 @@ Every test build and probe on this branch, newest first, with what changed in it
 
 ## Nov 13
 
+- **Test 155** · Wave Mobile Beta 1.2.3 · [`155-wave-mobile-beta-1.2.3-separate-colours.apk`](beta/155-wave-mobile-beta-1.2.3-separate-colours.apk): Visuals: separate colour settings for the analyzer and the meters (each its own adaptive switch, picker and reset)
 - **Test 154** · Wave Mobile Beta 1.2.3 · [`154-wave-mobile-beta-1.2.3-blocked-above.apk`](beta/154-wave-mobile-beta-1.2.3-blocked-above.apk): Stats: the blocked counter moved above About these numbers
 - **Test 153** · Wave Mobile Beta 1.2.3 · [`153-wave-mobile-beta-1.2.3-blocked-counter.apk`](beta/153-wave-mobile-beta-1.2.3-blocked-counter.apk): Stats: a Trackers and analytics blocked counter at the bottom
 - **Test 152** · Wave Mobile Beta 1.2.3 · [`152-wave-mobile-beta-1.2.3-stats.apk`](beta/152-wave-mobile-beta-1.2.3-stats.apk): Stats tab: time listened and songs played, skipped and hearted for today, this week, month and year (counted by Wave on the phone)
