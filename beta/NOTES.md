@@ -162,6 +162,7 @@
 | `160-wave-mobile-beta-1.2.3-playlists-fix.apk` | Nov 13 | Playlists / My Collection: fixes Tidal's 400 on include (comma), retries when Tidal can't be reached, uses only the API's sign-in, errors name the step |
 | `161-wave-mobile-beta-1.2.3-unavailable-csv.apk` | Nov 13 | Export: songs/albums no longer on Tidal go in separate (unavailable) CSVs; import skips songs Tidal turns down instead of stopping |
 | `162-wave-mobile-beta-1.2.3-import-duplicates.apk` | Nov 13 | Import skips duplicates (twice in a file, or already in My Collection) and says how many |
+| `163-wave-mobile-beta-1.2.3-single-playback.apk` | Nov 13 | Wave tab → Single playback: each song stops at its end, Max quality, crossfade / normalization / fades / meters off, full level (Android max on USB, line out, wired), Do Not Disturb alarms-only; all put back when off |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
