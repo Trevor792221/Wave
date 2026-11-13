@@ -5,6 +5,7 @@ Every test build and probe on this branch, newest first, with what changed in it
 ## Nov 13
 
 - **Probe 12** · Wave Probe 10 · [`12-wave-probe-10.apk`](probes/12-wave-probe-10.apk): Records Tidal's playlist and My Collection requests (path, field names and shapes only; no token, titles or ids), for playlist export / import
+- **Test 164** · Wave Mobile Beta 1.2.3 · [`164-wave-mobile-beta-1.2.3-single-meters-on.apk`](beta/164-wave-mobile-beta-1.2.3-single-meters-on.apk): Single playback keeps the analyzers and meters running (they only read the sound); wording fixed
 - **Test 163** · Wave Mobile Beta 1.2.3 · [`163-wave-mobile-beta-1.2.3-single-playback.apk`](beta/163-wave-mobile-beta-1.2.3-single-playback.apk): Wave tab → Single playback: each song stops at its end, Max quality, crossfade / normalization / fades / meters off, full level (Android max on USB, line out, wired), Do Not Disturb alarms-only; all put back when off
 - **Test 162** · Wave Mobile Beta 1.2.3 · [`162-wave-mobile-beta-1.2.3-import-duplicates.apk`](beta/162-wave-mobile-beta-1.2.3-import-duplicates.apk): Import skips duplicates (twice in a file, or already in My Collection) and says how many
 - **Test 161** · Wave Mobile Beta 1.2.3 · [`161-wave-mobile-beta-1.2.3-unavailable-csv.apk`](beta/161-wave-mobile-beta-1.2.3-unavailable-csv.apk): Export: songs/albums no longer on Tidal go in separate (unavailable) CSVs; import skips songs Tidal turns down instead of stopping
