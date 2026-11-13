@@ -158,6 +158,7 @@
 | `156-wave-mobile-beta-1.2.3-fine-volume.apk` | Nov 13 | Fine volume steps (Wave tab → Volume, off by default): volume buttons move 0–100% everywhere, 1–10% per press; Android's step above plus a trim in Wave's player |
 | `157-wave-mobile-beta-1.2.3-volume-undone.apk` | Nov 13 | Fine volume steps removed again (as 155) |
 | `158-wave-mobile-beta-1.2.3-settings-backup.apk` | Nov 13 | Updates tab → Backup: export / import settings, automatic daily / weekly / monthly backup to a picked file (phone, Google Drive, Proton Drive) |
+| `159-wave-mobile-beta-1.2.3-playlists-csv.apk` | Nov 13 | Updates tab → Playlists and My Collection: export ticked playlists (one CSV each) and My Collection (3 CSVs); import CSVs as new playlists / into My Collection (by Tidal ID, ISRC or search). Built on 158 |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
