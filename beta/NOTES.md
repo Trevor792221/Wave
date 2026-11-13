@@ -149,6 +149,8 @@
 | `147-wave-mobile-beta-1.2.3-resampling-note.apk` | Nov 13 | Signal path: the note says what Chrome's resampling does to the song (measured: unchanged to 15 kHz, top end a few dB quieter, added error ~80 dB below the music) |
 | `148-wave-mobile-beta-1.2.3-meter-styles.apk` | Nov 13 | Meter styles Analog 1, Analog 2 (new: classic backlit cream VU face), Digital 1, Digital 2 (was Deck); a VU meter switch (off: the peak meter only) |
 | `149-wave-beta-2.1.5-meter-styles.apk` | Nov 13 | TV: the same meter styles and VU meter switch |
+| `150-wave-mobile-beta-1.2.3-analyzer-level.apk` | Nov 13 | Mobile: Analyzer level slider (Visuals → Spectrum analyzer, −12 to +12 dB) |
+| `151-wave-beta-2.1.5-analyzer-level.apk` | Nov 13 | TV: the same Analyzer level slider |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner
