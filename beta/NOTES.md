@@ -155,6 +155,7 @@
 | `153-wave-mobile-beta-1.2.3-blocked-counter.apk` | Nov 13 | Stats: a Trackers and analytics blocked counter at the bottom |
 | `154-wave-mobile-beta-1.2.3-blocked-above.apk` | Nov 13 | Stats: the blocked counter moved above About these numbers |
 | `155-wave-mobile-beta-1.2.3-separate-colours.apk` | Nov 13 | Visuals: separate colour settings for the analyzer and the meters (each its own adaptive switch, picker and reset) |
+| `156-wave-mobile-beta-1.2.3-fine-volume.apk` | Nov 13 | Fine volume steps (Wave tab → Volume, off by default): volume buttons move 0–100% everywhere, 1–10% per press; Android's step above plus a trim in Wave's player |
 
 Not kept (the files were replaced by later builds and that code wasn't saved): the first WV TV Player tests and
 the Tidal sign-in test (0.1–0.2), the browser tests 0.4–0.7, 0.10.6 (undone), the first 2.0.3 (cookie banner

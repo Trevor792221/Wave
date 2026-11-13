@@ -4,6 +4,7 @@ Every test build and probe on this branch, newest first, with what changed in it
 
 ## Nov 13
 
+- **Test 156** · Wave Mobile Beta 1.2.3 · [`156-wave-mobile-beta-1.2.3-fine-volume.apk`](beta/156-wave-mobile-beta-1.2.3-fine-volume.apk): Fine volume steps (Wave tab → Volume, off by default): volume buttons move 0–100% everywhere, 1–10% per press; Android's step above plus a trim in Wave's player
 - **Test 155** · Wave Mobile Beta 1.2.3 · [`155-wave-mobile-beta-1.2.3-separate-colours.apk`](beta/155-wave-mobile-beta-1.2.3-separate-colours.apk): Visuals: separate colour settings for the analyzer and the meters (each its own adaptive switch, picker and reset)
 - **Test 154** · Wave Mobile Beta 1.2.3 · [`154-wave-mobile-beta-1.2.3-blocked-above.apk`](beta/154-wave-mobile-beta-1.2.3-blocked-above.apk): Stats: the blocked counter moved above About these numbers
 - **Test 153** · Wave Mobile Beta 1.2.3 · [`153-wave-mobile-beta-1.2.3-blocked-counter.apk`](beta/153-wave-mobile-beta-1.2.3-blocked-counter.apk): Stats: a Trackers and analytics blocked counter at the bottom
